@@ -95,6 +95,10 @@ class ImageService:
     
     def _a1111_available(self) -> bool:
         """Check if A1111 is available with circuit breaker logic."""
+        # Skip A1111 checks entirely when using stability backend
+        if self._active_backend == "stability":
+            return False
+            
         now = time.time()
         
         # Circuit breaker open?
@@ -135,6 +139,9 @@ class ImageService:
             # Priority order: Stability (if API key) > A1111 (if available) > placeholder
             if settings.stability_api_key:
                 chosen = "stability"
+                if initial:
+                    logger.info(f"Auto backend selection: {chosen}")
+                return chosen
             elif self._a1111_available():
                 chosen = "sdxl-a1111"
             else:
@@ -149,10 +156,13 @@ class ImageService:
     
     def get_status(self) -> dict:
         """Get current backend status for monitoring and UI."""
+        # Only check A1111 if actually using it
+        a1111_ok = self._a1111_available() if self._active_backend in ["sdxl-a1111", "auto"] else False
+        
         return {
             "configured": self.backend,
             "active": self._active_backend,
-            "a1111_ok": self._a1111_available(),
+            "a1111_ok": a1111_ok,
             "cb_open_until": self._health.cb_open_until,
             "last_check": self._health.last_check_ts,
             "consecutive_failures": self._health.consecutive_failures,
@@ -212,8 +222,8 @@ class ImageService:
             try:
                 return self._generate_a1111(panel, output_path, reference_image_path)
             except Exception as e:
-                # Mark health failure & maybe open circuit - only in A1111 mode
-                if self.config["backend"] == "sdxl-a1111":
+                # Mark health failure & maybe open circuit - only when actually using A1111
+                if self.config["backend"] in ["sdxl-a1111", "auto"]:
                     self._health.a1111_ok = False
                     self._health.consecutive_failures += 1
                     if self._health.consecutive_failures >= MAX_FAILS:
