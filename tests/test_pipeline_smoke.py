@@ -1,5 +1,7 @@
 """Smoke tests for the pipeline to ensure end-to-end functionality."""
 import sys
+import tempfile
+import json
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,8 @@ class TestPipelineSmoke:
         try:
             from agentic_flow import kb_loader, pipeline
             from agentic_flow.exporters import pdf_exporter, pptx_exporter
+            from agentic_flow.export_validator import validate_before_export
+            from agentic_flow.manifest_contracts import RunManifest
 
             # Verify modules are not None
             assert pipeline is not None
@@ -165,6 +169,95 @@ class TestCrossCompatibility:
         # Test path string conversion
         path_str = str(test_path)
         assert len(path_str) > 0, "Path should convert to non-empty string"
+    
+    def test_complete_pipeline_generation(self):
+        """
+        END-TO-END SMOKE TEST: Complete pipeline with export validation.
+        This test ensures the full pipeline works and produces quality outputs.
+        """
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                # Import pipeline components
+                from agentic_flow.pipeline import run_demo
+                from agentic_flow.manifest_contracts import RunManifest
+                from agentic_flow.export_validator import validate_before_export
+                
+                # Test with a simple Year 1 mathematics prompt
+                user_prompt = "Teach children how to count to 10 using fun examples"
+                year = "Year 1"
+                subject = "mathematics"
+                kb_dir = "kb"  # Use existing knowledge base
+                
+                # Run the complete pipeline
+                result = run_demo(
+                    year=year,
+                    subject=subject,
+                    user_prompt=user_prompt,
+                    kb_dir=kb_dir,
+                    out_dir=temp_dir
+                )
+                
+                # ASSERT: Basic result structure
+                assert "run_id" in result, "Result missing run_id"
+                assert "pdf" in result, "Result missing PDF path"
+                assert "pptx" in result, "Result missing PPTX path"
+                assert "manifest" in result, "Result missing manifest path"
+                
+                run_id = result["run_id"]
+                
+                # ASSERT: Files exist
+                pdf_path = Path(result["pdf"])
+                pptx_path = Path(result["pptx"])
+                manifest_path = Path(result["manifest"])
+                
+                assert pdf_path.exists(), f"PDF not found: {pdf_path}"
+                assert pptx_path.exists(), f"PPTX not found: {pptx_path}"
+                assert manifest_path.exists(), f"Manifest not found: {manifest_path}"
+                
+                # ASSERT: Files are non-trivial size (>10KB as per requirements)
+                assert pdf_path.stat().st_size > 10240, f"PDF too small: {pdf_path.stat().st_size} bytes"
+                assert pptx_path.stat().st_size > 10240, f"PPTX too small: {pptx_path.stat().st_size} bytes"
+                assert manifest_path.stat().st_size > 1024, f"Manifest too small: {manifest_path.stat().st_size} bytes"
+                
+                # ASSERT: Manifest validation
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    manifest_data = json.load(f)
+                
+                manifest = RunManifest(**manifest_data)
+                
+                # Run comprehensive export validation
+                validation_results = validate_before_export(manifest)
+                
+                # ASSERT: Critical validations pass
+                assert validation_results['counts_match'], "Panel/chunk count mismatch"
+                assert validation_results['images_valid'], "Invalid panel images"
+                assert validation_results['chunks_have_text'], "Empty chunks found"
+                
+                # ASSERT: Educational content quality
+                assert len(manifest.chunks) >= 3, f"Too few chunks: {len(manifest.chunks)}"
+                assert len(manifest.panels) == len(manifest.chunks), "Panel/chunk count mismatch"
+                
+                # ASSERT: Learning objectives present
+                objectives = getattr(manifest.refined_prompt, 'learning_objectives', [])
+                assert len(objectives) >= 1, "No learning objectives found"
+                
+                # ASSERT: Panel images valid (>1KB each)
+                for panel in manifest.panels:
+                    assert panel.image_uri, f"Panel {panel.chunk_id} missing image_uri"
+                    image_path = Path(panel.image_uri)
+                    assert image_path.exists(), f"Panel image not found: {image_path}"
+                    assert image_path.stat().st_size > 1024, f"Panel image too small: {image_path.stat().st_size} bytes"
+                
+                print(f"✅ SMOKE TEST PASSED: Generated {run_id} with {len(manifest.panels)} panels")
+                print(f"   PDF: {pdf_path.stat().st_size} bytes")
+                print(f"   PPTX: {pptx_path.stat().st_size} bytes")
+                print(f"   Validation: {sum(validation_results.values())}/{len(validation_results)} checks passed")
+                
+            except ImportError as e:
+                pytest.skip(f"Pipeline components not available: {e}")
+            except Exception as e:
+                pytest.fail(f"Pipeline smoke test failed: {e}")
 
         # Test pathlib operations
         assert test_path.is_dir(), "Should be recognized as directory"

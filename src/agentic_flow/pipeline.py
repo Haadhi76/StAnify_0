@@ -244,6 +244,15 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
         model_notes=f"Generated with {settings.image_backend} backend and LLM agents. Image continuity: {image_continuity_result.verdict if image_continuity_result else 'N/A'}"
     )
 
+    # Validate manifest before export
+    from .export_validator import validate_before_export
+    try:
+        validation_results = validate_before_export(manifest)
+        logger.info(f"Export validation passed: {sum(validation_results.values())}/{len(validation_results)} checks")
+    except Exception as e:
+        logger.warning(f"Export validation failed: {e}")
+        # Continue with export but log the issue
+    
     # Debug manifest before export
     print("Manifest check:",
           f"chunks={len(manifest.chunks)}",
@@ -252,9 +261,28 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
           f"not_found={[p.chunk_id for p in manifest.panels if p.image_uri and not Path(p.image_uri).exists()]}",
           f"sizes={[Path(p.image_uri).stat().st_size if p.image_uri and Path(p.image_uri).exists() else 0 for p in manifest.panels]}")
     
+    # 9.5. Organize images into run-specific directory
+    images_dir = out / "images"
+    images_dir.mkdir(exist_ok=True)
+    
+    # Copy and reorganize panel images
+    for panel in manifest.panels:
+        if panel.image_uri and Path(panel.image_uri).exists():
+            source_path = Path(panel.image_uri)
+            dest_path = images_dir / f"panel_{panel.chunk_id}.png"
+            
+            if source_path != dest_path:  # Avoid copying to itself
+                import shutil
+                shutil.copy2(source_path, dest_path)
+                # Update manifest to point to organized location
+                panel.image_uri = str(dest_path.resolve()).replace("\\", "/")
+                logger.debug(f"Copied {source_path.name} to organized location: {dest_path}")
+    
     # 10. Export to various formats
     pdf_path = str(out / f"{run_id}.pdf")
     pptx_path = str(out / f"{run_id}.pptx")
+    zip_path = str(out / f"{run_id}.zip")
+    
     export_manifest_to_pdf(manifest, pdf_path)
     export_manifest_to_pptx(manifest, pptx_path)
     
@@ -262,6 +290,14 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
     manifest_path = str(out / f"{run_id}.manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as f:
         f.write(manifest.json(indent=2))
+    
+    # Create comprehensive ZIP package (always enabled)
+    from .exporters.zip_exporter import export_manifest_to_zip
+    try:
+        export_manifest_to_zip(manifest, zip_path, str(out / "temp"))
+        logger.info(f"Created comprehensive export package: {zip_path}")
+    except Exception as e:
+        logger.warning(f"ZIP export failed: {e}")
 
     # 11. Store run in database for persistence
     try:
@@ -269,6 +305,7 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
             "run_id": run_id,
             "pdf": pdf_path,
             "pptx": pptx_path,
+            "zip": zip_path,
             "manifest": manifest_path,
             "images": image_uris
         }

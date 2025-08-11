@@ -5,14 +5,22 @@ Context:
 - Subject: {subject}
 - Topic: {topic_title} (ID: {topic_id})
 - Reading Level: {reading_level}
-- Max Steps: {max_steps}
-- Number Range: {numbers_range}
+- Max Steps: {max_steps} (STRICTLY enforce this limit)
+- Number Range: {numbers_range} (do NOT exceed this range)
 
 Curriculum Information:
-- Known Vocabulary: {vocab_known}
-- Vocabulary to Avoid: {vocab_avoid}
+- Known Vocabulary: {vocab_known} (prioritize these words in content)
+- Vocabulary to Avoid: {vocab_avoid} (strictly forbidden)
 - Allowed Representations: {representations}
-- Out of Scope: {out_of_scope}
+- Out of Scope: {out_of_scope} (any mention results in automatic failure)
 - Common Misconceptions: {misconceptions}
+
+QUALITY REQUIREMENTS for Pass grade:
+- Learning objectives must be specific and measurable
+- All content must stay within the specified number range
+- Must include exactly 4-6 learning steps for optimal continuity
+- Use only vocabulary from the known list for Year 1/2
+- Address at least one common misconception
+- Include one "check your understanding" element
 
 Generate a comprehensive educational specification as valid JSON following the RefinedPromptSpec schema.
