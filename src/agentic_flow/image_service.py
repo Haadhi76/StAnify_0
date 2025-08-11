@@ -418,9 +418,36 @@ class ImageService:
             raise ImageGenerationError("STABILITY_API_KEY missing")
         return {"Authorization": f"Bearer {key}"}
     
+    def _stability_extract_b64(self, data: dict) -> bytes:
+        """
+        Extract base64 image data from Stability API response.
+        Handles both engines and images API response formats.
+        """
+        b64 = None
+        if isinstance(data, dict):
+            # Images API variants
+            b64 = data.get("image") or (data.get("images")[0] if isinstance(data.get("images"), list) and data["images"] else None)
+            # Artifacts shape (engines API)
+            if not b64 and "artifacts" in data:
+                for a in data["artifacts"]:
+                    if a.get("finishReason") not in {"CONTENT_FILTERED", "filtered"}:
+                        b64 = a.get("base64") or a.get("image")
+                        if b64: 
+                            break
+        
+        if not b64:
+            raise ImageGenerationError(f"Unexpected Stability response: keys={list(data.keys()) if isinstance(data, dict) else type(data)}")
+        
+        # Handle data URI format
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        
+        return base64.b64decode(b64)
+    
     def _stability_txt2img(self, panel: PanelSpec, base_url: str) -> bytes:
         """
         Generate image using Stability AI txt2img API.
+        Supports both engines and images API modes.
         
         Returns:
             Raw PNG bytes from Stability API
@@ -431,70 +458,68 @@ class ImageService:
         steps = panel.sdxl_hints.steps or self.config["stability_steps"]
         model = getattr(panel.sdxl_hints, "model", None) or self.config["stability_model"]
         
-        payload = {
-            "text_prompts": [
-                {"text": panel.positive_prompt, "weight": 1.0}
-            ],
-            "width": w,
-            "height": h,
-            "steps": steps,
-            "cfg_scale": guidance,
-            "samples": 1,
-        }
+        mode = self.config["stability_mode"]
         
-        # Add negative prompt if provided
-        if panel.negative_prompt:
-            payload["text_prompts"].append({
-                "text": panel.negative_prompt, 
-                "weight": -1.0
-            })
-        
-        # Add seed if provided
-        if panel.sdxl_hints.seed:
-            payload["seed"] = panel.sdxl_hints.seed
-        
-        # Remove None values to avoid API issues
-        payload = {k: v for k, v in payload.items() if v is not None}
-        
-        url = f"{base_url.rstrip('/')}/v1/generation/{model}/text-to-image"
-        logger.info(f"Sending Stability txt2img request: {model}, {w}x{h}")
-        
-        r = requests.post(
-            url, 
-            headers=self._stability_headers(), 
-            json=payload, 
-            timeout=settings.http_timeout
-        )
-        r.raise_for_status()
-        data = r.json()
-        
-        # Parse response - handle various response formats
-        b64 = None
-        if isinstance(data, dict) and "artifacts" in data and data["artifacts"]:
-            # Find first non-filtered artifact
-            for a in data["artifacts"]:
-                if a.get("finishReason") not in {"CONTENT_FILTERED", "filtered"}:
-                    b64 = a.get("base64")
-                    if b64:
-                        break
-            if not b64:
-                # All filtered - raise to trigger fallback
-                raise ImageGenerationError("All Stability artifacts content filtered")
-        else:
-            raise ImageGenerationError(f"Unexpected Stability response format: {list(data.keys()) if isinstance(data, dict) else type(data)}")
-        
-        if not b64:
-            raise ImageGenerationError(f"No base64 data found in Stability response")
-        
-        # Handle data URI format
-        if "," in b64:
-            b64 = b64.split(",", 1)[1]
-        
-        return base64.b64decode(b64)
+        if mode == "engines":
+            # Engines API: /v1/generation/{engine}/text-to-image
+            path = self.config["stability_txt2img_path"].format(engine=model)
+            url = f"{base_url.rstrip('/')}{path}"
+            payload = {
+                "text_prompts": [{"text": panel.positive_prompt, "weight": 1.0}],
+                "cfg_scale": guidance,
+                "height": h,
+                "width": w,
+                "samples": 1,
+                "steps": steps,
+                "seed": panel.sdxl_hints.seed,
+                "style_preset": None,
+            }
+            # Add negative prompt if provided
+            if panel.negative_prompt:
+                payload["text_prompts"].append({
+                    "text": panel.negative_prompt, 
+                    "weight": -1.0
+                })
+            
+            # Remove None values
+            payload = {k: v for k, v in payload.items() if v is not None}
+            
+            headers = {**self._stability_headers(), "Accept": "application/json"}
+            r = requests.post(url, headers=headers, json=payload, timeout=settings.http_timeout)
+            r.raise_for_status()
+            return self._stability_extract_b64(r.json())
+            
+        else:  # "images" mode
+            path = self.config["stability_txt2img_path"]
+            url = f"{base_url.rstrip('/')}{path}"
+            payload = {
+                "model": model,
+                "prompt": panel.positive_prompt,
+                "negative_prompt": panel.negative_prompt or "",
+                "width": w,
+                "height": h,
+                "steps": steps,
+                "guidance": guidance,
+                "seed": panel.sdxl_hints.seed,
+            }
+            
+            # Remove None values
+            payload = {k: v for k, v in payload.items() if v is not None}
+            
+            headers = {**self._stability_headers(), "Accept": "application/json"}
+            r = requests.post(url, headers=headers, json=payload, timeout=settings.http_timeout)
+            r.raise_for_status()
+            
+            # Some endpoints return binary; if JSON fails, fallback to raw content
+            try:
+                return self._stability_extract_b64(r.json())
+            except ValueError:
+                return r.content
     
     def _stability_img2img(self, panel: PanelSpec, base_url: str, ref_path: str) -> bytes:
         """
         Generate image using Stability AI img2img API with reference image.
+        Supports both engines and images API modes.
         
         Returns:
             Raw PNG bytes from Stability API
@@ -508,62 +533,62 @@ class ImageService:
         # Strength mapping for continuity
         strength = min(max(panel.reference.strength_hint or 0.6, 0.1), 0.95)
         
-        # Prepare multipart request
-        files = {"init_image": open(ref_path, "rb")}
-        data = {
-            "text_prompts[0][text]": panel.positive_prompt,
-            "text_prompts[0][weight]": "1.0",
-            "width": str(w),
-            "height": str(h),
-            "steps": str(steps),
-            "cfg_scale": str(guidance),
-            "image_strength": str(1.0 - strength),  # Stability uses image_strength (inverse of strength)
-            "samples": "1",
-        }
+        mode = self.config["stability_mode"]
         
-        # Add negative prompt if provided
-        if panel.negative_prompt:
-            data["text_prompts[1][text]"] = panel.negative_prompt
-            data["text_prompts[1][weight]"] = "-1.0"
-        
-        # Add seed if provided
-        if panel.sdxl_hints.seed:
-            data["seed"] = str(panel.sdxl_hints.seed)
-        
-        url = f"{base_url.rstrip('/')}/v1/generation/{model}/image-to-image"
-        logger.info(f"Sending Stability img2img request: {model}, strength={strength}")
-        
-        try:
-            r = requests.post(
-                url,
-                headers=self._stability_headers(),
-                data=data,
-                files=files,
-                timeout=settings.http_timeout
-            )
-            r.raise_for_status()
-            response_data = r.json()
+        if mode == "engines":
+            # Engines API: /v1/generation/{engine}/image-to-image
+            path = self.config["stability_img2img_path"].format(engine=model)
+            url = f"{base_url.rstrip('/')}{path}"
+            files = {"init_image": open(ref_path, "rb")}  # engines API expects 'init_image'
+            data = {
+                "text_prompts": json.dumps([{"text": panel.positive_prompt, "weight": 1.0}]),
+                "cfg_scale": str(guidance),
+                "height": str(h),
+                "width": str(w),
+                "samples": "1",
+                "steps": str(steps),
+                "image_strength": str(strength),  # engines param name
+                "seed": str(panel.sdxl_hints.seed or 0),
+            }
             
-            # Parse artifacts response
-            b64 = None
-            if "artifacts" in response_data and response_data["artifacts"]:
-                for a in response_data["artifacts"]:
-                    if a.get("finishReason") not in {"CONTENT_FILTERED", "filtered"}:
-                        b64 = a.get("base64") or a.get("image")
-                        if b64:
-                            break
+            # Add negative prompt if provided
+            if panel.negative_prompt:
+                prompts = json.loads(data["text_prompts"])
+                prompts.append({"text": panel.negative_prompt, "weight": -1.0})
+                data["text_prompts"] = json.dumps(prompts)
             
-            if not b64:
-                raise ImageGenerationError("No usable artifact from Stability img2img")
-            
-            # Handle data URI format
-            if "," in b64:
-                b64 = b64.split(",", 1)[1]
+            try:
+                r = requests.post(url, headers=self._stability_headers(), data=data, files=files, timeout=settings.http_timeout)
+                r.raise_for_status()
+                return self._stability_extract_b64(r.json())
+            finally:
+                files["init_image"].close()
                 
-            return base64.b64decode(b64)
+        else:  # "images" mode
+            path = self.config["stability_img2img_path"]
+            url = f"{base_url.rstrip('/')}{path}"
+            files = {"image": open(ref_path, "rb")}       # images API expects 'image'
+            data = {
+                "model": model,
+                "prompt": panel.positive_prompt,
+                "negative_prompt": panel.negative_prompt or "",
+                "width": str(w),
+                "height": str(h),
+                "steps": str(steps),
+                "guidance": str(guidance),
+                "strength": str(strength),
+                "seed": str(panel.sdxl_hints.seed or 0),
+            }
             
-        finally:
-            files["image"].close()
+            try:
+                r = requests.post(url, headers=self._stability_headers(), data=data, files=files, timeout=settings.http_timeout)
+                r.raise_for_status()
+                try:
+                    return self._stability_extract_b64(r.json())
+                except ValueError:
+                    return r.content
+            finally:
+                files["image"].close()
     
     def _generate_stability(
         self,
@@ -656,9 +681,17 @@ class ImageService:
                 results[panel.chunk_id] = placeholder_path
         
         # Safety net: detect accidental placeholder fallbacks
-        if (self.backend == "sdxl-a1111" and results and 
-            len({Path(p).stat().st_size for p in results.values()}) == 1):
-            logger.warning("All panels identical size — likely placeholder fallback or failed A1111 calls.")
+        if results:
+            sizes = {Path(p).stat().st_size for p in results.values()}
+            if len(sizes) == 1:
+                single_size = list(sizes)[0]
+                if single_size < 50000:  # Less than 50KB suggests placeholders
+                    if settings.image_backend == "stability":
+                        logger.warning("All panels identical small size — likely Stability API fallback to placeholders. Check API key/endpoints.")
+                    elif self.backend == "sdxl-a1111":
+                        logger.warning("All panels identical size — likely placeholder fallback or failed A1111 calls.")
+                    else:
+                        logger.warning(f"All panels identical small size ({single_size} bytes) — check {self.backend} configuration.")
         
         return results
 

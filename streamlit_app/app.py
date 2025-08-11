@@ -321,6 +321,12 @@ def resolve_topic_from_prompt(year: str, subject: str, prompt: str):
 def render_backend_status():
     """Render backend status indicator in the UI."""
     try:
+        # Import settings here to get latest values
+        from src.agentic_flow.settings import settings
+        
+        # Show detailed configuration at the top
+        st.caption(f"🖼️ Backend: **{settings.image_backend}** | Model: **{settings.stability_model}** | API: {settings.stability_base_url} | Mode: **{settings.stability_api_mode}**")
+        
         status = image_service.get_status()
         active = status["active"]
         configured = status["configured"]
