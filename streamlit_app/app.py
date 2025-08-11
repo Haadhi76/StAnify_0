@@ -327,12 +327,15 @@ def render_backend_status():
         a1111_ok = status["a1111_ok"]
         
         # Choose emoji and color based on status
-        if a1111_ok and active == "sdxl-a1111":
+        if active == "stability":
+            badge = "🟢" 
+            message = f"**{active}** (Cloud AI generation active)"
+        elif a1111_ok and active == "sdxl-a1111":
             badge = "🟢"
-            message = f"**{active}** (AI generation active)"
+            message = f"**{active}** (Local AI generation active)"
         elif active == "placeholder" and configured == "auto":
             badge = "🟡"
-            message = f"**{active}** (A1111 offline - using placeholders)"
+            message = f"**{active}** (AI services offline - using placeholders)"
         elif active == "placeholder":
             badge = "🔵"
             message = f"**{active}** (configured)"
@@ -345,8 +348,8 @@ def render_backend_status():
         with col1:
             st.caption(f"{badge} Image backend: {message}")
         with col2:
-            if configured == "auto" and not a1111_ok:
-                if st.button("🔄 Recheck A1111", help="Force recheck A1111 connection"):
+            if configured == "auto" and active == "placeholder":
+                if st.button("🔄 Recheck Services", help="Force recheck AI service connections"):
                     # Force a synchronous recheck
                     image_service._health.last_check_ts = 0
                     image_service._health.cb_open_until = 0

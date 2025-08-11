@@ -4,10 +4,22 @@ Handles backend selection for image generation and other configurable options.
 """
 
 import os
+from pathlib import Path
 from typing import Literal, Optional
 
+# Load .env file if it exists
+try:
+    from dotenv import load_dotenv
+    # Look for .env file in project root
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    # python-dotenv not installed, skip .env loading
+    pass
+
 # Image generation backend options
-ImageBackend = Literal["auto", "placeholder", "sdxl-a1111", "sdxl-comfyui"]
+ImageBackend = Literal["auto", "placeholder", "sdxl-a1111", "sdxl-comfyui", "stability"]
 
 
 class Settings:
@@ -24,6 +36,13 @@ class Settings:
         # ComfyUI settings
         self.comfyui_base_url: str = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
         self.comfyui_workflow_path: Optional[str] = os.getenv("COMFYUI_WORKFLOW_PATH")
+        
+        # Stability AI settings
+        self.stability_base_url: str = os.getenv("STABILITY_BASE_URL", "https://api.stability.ai")
+        self.stability_api_key: Optional[str] = os.getenv("STABILITY_API_KEY")
+        self.stability_model: str = os.getenv("STABILITY_MODEL", "stable-image-ultra")
+        self.stability_guidance: float = float(os.getenv("STABILITY_GUIDANCE", "7.0"))
+        self.stability_steps: int = int(os.getenv("STABILITY_STEPS", "30"))
         
         # Default SDXL parameters
         self.default_width: int = int(os.getenv("SDXL_WIDTH", "1024"))
@@ -57,7 +76,7 @@ class Settings:
             True if settings are valid, False otherwise
         """
         # Validate image backend
-        if self.image_backend not in ["auto", "placeholder", "sdxl-a1111", "sdxl-comfyui"]:
+        if self.image_backend not in ["auto", "placeholder", "sdxl-a1111", "sdxl-comfyui", "stability"]:
             print(f"Warning: Invalid image_backend '{self.image_backend}', falling back to 'auto'")
             self.image_backend = "auto"
         
@@ -74,6 +93,10 @@ class Settings:
         if self.llm_model.startswith("claude-") and not self.anthropic_api_key:
             print("Warning: Anthropic API key not found for Claude model")
         
+        # Check API keys for image backends
+        if self.image_backend == "stability" and not self.stability_api_key:
+            print("Warning: Stability API key not found for stability backend")
+        
         return True
     
     def get_image_config(self) -> dict:
@@ -89,6 +112,10 @@ class Settings:
             "a1111_model": self.a1111_model,
             "comfyui_url": self.comfyui_base_url,
             "comfyui_workflow": self.comfyui_workflow_path,
+            "stability_url": self.stability_base_url,
+            "stability_model": self.stability_model,
+            "stability_guidance": self.stability_guidance,
+            "stability_steps": self.stability_steps,
         }
     
     def get_llm_config(self) -> dict:

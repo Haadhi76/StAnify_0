@@ -99,10 +99,17 @@ class ImageService:
     
     def _choose_backend(self, initial=False) -> str:
         """Choose the best available backend based on configuration and health."""
-        configured = self.backend  # "auto", "sdxl-a1111", "placeholder"
+        configured = self.backend  # "auto", "stability", "sdxl-a1111", "placeholder"
         
         if configured == "auto":
-            chosen = "sdxl-a1111" if self._a1111_available() else "placeholder"
+            # Priority order: Stability (if API key) > A1111 (if available) > placeholder
+            if settings.stability_api_key:
+                chosen = "stability"
+            elif self._a1111_available():
+                chosen = "sdxl-a1111"
+            else:
+                chosen = "placeholder"
+                
             if initial:
                 logger.info(f"Auto backend selection: {chosen}")
             return chosen
@@ -187,6 +194,13 @@ class ImageService:
         
         elif backend == "sdxl-comfyui":
             return self._generate_comfyui(panel, output_path, reference_image_path)
+        
+        elif backend == "stability":
+            try:
+                return self._generate_stability(panel, output_path, reference_image_path)
+            except Exception as e:
+                logger.error(f"Stability generation failed: {e}")
+                return self._generate_placeholder(output_path, label="Stability offline")
         
         else:
             logger.warning(f"Unknown backend '{backend}', falling back to placeholder")
@@ -396,6 +410,174 @@ class ImageService:
         
         logger.info(f"Generated img2img at {output_path}")
         return str(output_path.resolve()).replace("\\", "/")
+    
+    def _stability_headers(self) -> dict:
+        """Get headers for Stability AI API requests."""
+        key = settings.stability_api_key
+        if not key:
+            raise ImageGenerationError("STABILITY_API_KEY missing")
+        return {"Authorization": f"Bearer {key}"}
+    
+    def _stability_txt2img(self, panel: PanelSpec, base_url: str) -> bytes:
+        """
+        Generate image using Stability AI txt2img API.
+        
+        Returns:
+            Raw PNG bytes from Stability API
+        """
+        w = panel.sdxl_hints.width or self.config["width"]
+        h = panel.sdxl_hints.height or self.config["height"]
+        guidance = panel.sdxl_hints.cfg_scale or self.config["stability_guidance"]
+        steps = panel.sdxl_hints.steps or self.config["stability_steps"]
+        model = getattr(panel.sdxl_hints, "model", None) or self.config["stability_model"]
+        
+        payload = {
+            "model": model,
+            "prompt": panel.positive_prompt,
+            "negative_prompt": panel.negative_prompt or "",
+            "width": w,
+            "height": h,
+            "steps": steps,
+            "guidance": guidance,
+            "seed": panel.sdxl_hints.seed if panel.sdxl_hints.seed else None,
+        }
+        
+        # Remove None values to avoid API issues
+        payload = {k: v for k, v in payload.items() if v is not None}
+        
+        url = f"{base_url.rstrip('/')}/v1/images/generate"
+        logger.info(f"Sending Stability txt2img request: {model}, {w}x{h}")
+        
+        r = requests.post(
+            url, 
+            headers=self._stability_headers(), 
+            json=payload, 
+            timeout=settings.http_timeout
+        )
+        r.raise_for_status()
+        data = r.json()
+        
+        # Parse response - handle various response formats
+        b64 = None
+        if isinstance(data, dict):
+            if "artifacts" in data and data["artifacts"]:
+                # Find first non-filtered artifact
+                for a in data["artifacts"]:
+                    if a.get("finishReason") not in {"CONTENT_FILTERED", "filtered"}:
+                        b64 = a.get("base64") or a.get("image")
+                        if b64:
+                            break
+                if not b64:
+                    # All filtered - raise to trigger fallback
+                    raise ImageGenerationError("All Stability artifacts content filtered")
+            else:
+                # Direct response format
+                b64 = data.get("image") or data.get("base64")
+        
+        if not b64:
+            raise ImageGenerationError(f"Unexpected Stability response format: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+        
+        # Handle data URI format
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        
+        return base64.b64decode(b64)
+    
+    def _stability_img2img(self, panel: PanelSpec, base_url: str, ref_path: str) -> bytes:
+        """
+        Generate image using Stability AI img2img API with reference image.
+        
+        Returns:
+            Raw PNG bytes from Stability API
+        """
+        w = panel.sdxl_hints.width or self.config["width"]
+        h = panel.sdxl_hints.height or self.config["height"]
+        guidance = panel.sdxl_hints.cfg_scale or self.config["stability_guidance"]
+        steps = panel.sdxl_hints.steps or self.config["stability_steps"]
+        model = getattr(panel.sdxl_hints, "model", None) or self.config["stability_model"]
+        
+        # Strength mapping for continuity
+        strength = min(max(panel.reference.strength_hint or 0.6, 0.1), 0.95)
+        
+        # Prepare multipart request
+        files = {"image": open(ref_path, "rb")}
+        data = {
+            "model": model,
+            "prompt": panel.positive_prompt,
+            "negative_prompt": panel.negative_prompt or "",
+            "width": str(w),
+            "height": str(h),
+            "steps": str(steps),
+            "guidance": str(guidance),
+            "strength": str(strength),
+        }
+        
+        url = f"{base_url.rstrip('/')}/v1/images/edits"
+        logger.info(f"Sending Stability img2img request: {model}, strength={strength}")
+        
+        try:
+            r = requests.post(
+                url,
+                headers=self._stability_headers(),
+                data=data,
+                files=files,
+                timeout=settings.http_timeout
+            )
+            r.raise_for_status()
+            response_data = r.json()
+            
+            # Parse artifacts response
+            b64 = None
+            if "artifacts" in response_data and response_data["artifacts"]:
+                for a in response_data["artifacts"]:
+                    if a.get("finishReason") not in {"CONTENT_FILTERED", "filtered"}:
+                        b64 = a.get("base64") or a.get("image")
+                        if b64:
+                            break
+            
+            if not b64:
+                raise ImageGenerationError("No usable artifact from Stability img2img")
+            
+            # Handle data URI format
+            if "," in b64:
+                b64 = b64.split(",", 1)[1]
+                
+            return base64.b64decode(b64)
+            
+        finally:
+            files["image"].close()
+    
+    def _generate_stability(
+        self,
+        panel: PanelSpec,
+        output_path: Path,
+        reference_image_path: Optional[str] = None
+    ) -> str:
+        """Generate image using Stability AI API."""
+        
+        base_url = self.config["stability_url"]
+        
+        try:
+            if panel.reference.use_previous_image and reference_image_path:
+                logger.info(f"Generating Stability img2img for panel {panel.chunk_id}")
+                raw = self._stability_img2img(panel, base_url, reference_image_path)
+            else:
+                logger.info(f"Generating Stability txt2img for panel {panel.chunk_id}")
+                raw = self._stability_txt2img(panel, base_url)
+            
+            # Save the image
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(raw)
+            
+            logger.info(f"Generated Stability image: {output_path} ({len(raw)} bytes)")
+            return str(output_path.resolve()).replace("\\", "/")
+            
+        except Exception as e:
+            logger.error(f"Stability generation failed for panel {panel.chunk_id}: {e}")
+            if hasattr(e, 'response') and e.response:
+                logger.error(f"Stability API response: {e.response.text}")
+            # Graceful fallback to enhanced placeholder
+            return self._generate_placeholder(output_path, label=panel.caption or "stability-fallback")
     
     def _generate_comfyui(
         self,
