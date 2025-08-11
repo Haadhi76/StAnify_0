@@ -470,23 +470,21 @@ class ImageService:
         
         # Parse response - handle various response formats
         b64 = None
-        if isinstance(data, dict):
-            if "artifacts" in data and data["artifacts"]:
-                # Find first non-filtered artifact
-                for a in data["artifacts"]:
-                    if a.get("finishReason") not in {"CONTENT_FILTERED", "filtered"}:
-                        b64 = a.get("base64") or a.get("image")
-                        if b64:
-                            break
-                if not b64:
-                    # All filtered - raise to trigger fallback
-                    raise ImageGenerationError("All Stability artifacts content filtered")
-            else:
-                # Direct response format
-                b64 = data.get("image") or data.get("base64")
+        if isinstance(data, dict) and "artifacts" in data and data["artifacts"]:
+            # Find first non-filtered artifact
+            for a in data["artifacts"]:
+                if a.get("finishReason") not in {"CONTENT_FILTERED", "filtered"}:
+                    b64 = a.get("base64")
+                    if b64:
+                        break
+            if not b64:
+                # All filtered - raise to trigger fallback
+                raise ImageGenerationError("All Stability artifacts content filtered")
+        else:
+            raise ImageGenerationError(f"Unexpected Stability response format: {list(data.keys()) if isinstance(data, dict) else type(data)}")
         
         if not b64:
-            raise ImageGenerationError(f"Unexpected Stability response format: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+            raise ImageGenerationError(f"No base64 data found in Stability response")
         
         # Handle data URI format
         if "," in b64:
