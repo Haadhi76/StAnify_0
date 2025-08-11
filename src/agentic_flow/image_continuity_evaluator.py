@@ -49,6 +49,22 @@ except ImportError:
     LPIPS_AVAILABLE = False
     logging.warning("LPIPS not available. Install with: pip install lpips")
 
+# Global singleton for LPIPS model to prevent double loading
+_LPIPS_MODEL_SINGLETON = None
+
+def get_lpips_model(device="cpu"):
+    """Get singleton LPIPS model to prevent multiple initializations."""
+    global _LPIPS_MODEL_SINGLETON
+    if _LPIPS_MODEL_SINGLETON is None and LPIPS_AVAILABLE:
+        try:
+            logger.info("Loading LPIPS model (singleton initialization)")
+            _LPIPS_MODEL_SINGLETON = lpips.LPIPS(net='alex').to(device)
+            logger.info("LPIPS model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load LPIPS model: {e}")
+            _LPIPS_MODEL_SINGLETON = None
+    return _LPIPS_MODEL_SINGLETON
+
 try:
     from skimage.metrics import structural_similarity as ssim
     from skimage.color import rgb2gray
@@ -116,17 +132,13 @@ class ImageContinuityEvaluator:
             self.clip_model = None
             
     def _init_lpips(self):
-        """Initialize LPIPS model for perceptual similarity."""
+        """Initialize LPIPS model for perceptual similarity using singleton."""
         if not LPIPS_AVAILABLE:
             logger.warning("LPIPS not available, skipping perceptual similarity evaluation")
             return
             
-        try:
-            self.lpips_model = lpips.LPIPS(net='alex').to(self.device)
-            logger.info("LPIPS model loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load LPIPS model: {e}")
-            self.lpips_model = None
+        # Use singleton to prevent multiple model loads
+        self.lpips_model = get_lpips_model(self.device)
     
     def evaluate_prompt_image_alignment(self, image_path: str, prompt: str) -> float:
         """

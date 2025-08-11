@@ -212,13 +212,14 @@ class ImageService:
             try:
                 return self._generate_a1111(panel, output_path, reference_image_path)
             except Exception as e:
-                # Mark health failure & maybe open circuit
-                self._health.a1111_ok = False
-                self._health.consecutive_failures += 1
-                if self._health.consecutive_failures >= MAX_FAILS:
-                    self._health.cb_open_until = time.time() + CB_OPEN_SEC
-                    logger.warning(f"A1111 circuit breaker opened due to: {e}")
-                logger.error(f"A1111 generation failed: {e}")
+                # Mark health failure & maybe open circuit - only in A1111 mode
+                if self.config["backend"] == "sdxl-a1111":
+                    self._health.a1111_ok = False
+                    self._health.consecutive_failures += 1
+                    if self._health.consecutive_failures >= MAX_FAILS:
+                        self._health.cb_open_until = time.time() + CB_OPEN_SEC
+                        logger.warning(f"A1111 circuit breaker opened due to: {e}")
+                    logger.error(f"A1111 generation failed: {e}")
                 # Explicit mode: still fall back; auto mode: will switch next call
                 return self._generate_placeholder(output_path, label="A1111 offline")
         
@@ -230,7 +231,7 @@ class ImageService:
                 return self._generate_stability(panel, output_path, reference_image_path)
             except Exception as e:
                 logger.error(f"Stability generation failed: {e}")
-                return self._generate_placeholder(output_path, label="Stability offline")
+                return self._generate_placeholder(output_path, label=f"Panel {panel.chunk_id}")
         
         else:
             logger.warning(f"Unknown backend '{backend}', falling back to placeholder")

@@ -203,7 +203,7 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
     # 8. Evaluate image continuity and regenerate if needed (disabled while stabilizing API)
     image_continuity_result = None
     regeneration_attempts = 0
-    max_regenerations = 0  # was 2; re-enable after Stability is working
+    max_regenerations = 1  # Re-enabled now that Stability AI images work properly
     
     while regeneration_attempts <= max_regenerations:
         try:
