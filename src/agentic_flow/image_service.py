@@ -1,6 +1,44 @@
 """
 Image generation service with multiple backend support.
-Supports placeholder images, Automatic1111, and ComfyUI.
+Supports placeholder images, Automa    def _generate_placeholder(self, output_path: Path, label: str = "") -> str:
+        """Generate a placeholder image with visible content and label."""
+        
+        sample_path = Path(settings.assets_dir) / "sample_panel.png"
+        
+        if sample_path.exists():
+            shutil.copy2(sample_path, output_path)
+        else:
+            # Create a simple colored rectangle if no sample exists
+            self._create_simple_placeholder(output_path)
+        
+        # Overlay border and label so it's clearly not blank
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            img = Image.open(output_path).convert("RGB")
+            dr = ImageDraw.Draw(img)
+            w, h = img.size
+            
+            # Draw border
+            dr.rectangle([10, 10, w-10, h-10], outline=(60, 90, 160), width=8)
+            # Draw header band
+            dr.rectangle([0, 0, w, 80], fill=(60, 90, 160))
+            
+            # Add text label
+            txt = label or "StAnify Placeholder"
+            # Try to load a font, fall back to default
+            try:
+                font = ImageFont.truetype("arial.ttf", 24)
+            except:
+                font = ImageFont.load_default()
+                
+            dr.text((24, 24), txt[:60], fill=(255, 255, 255), font=font)
+            
+            img.save(output_path, "PNG")
+            logger.info(f"Enhanced placeholder with label '{txt[:30]}...' at {output_path}")
+        except Exception as e:
+            logger.warning(f"Placeholder overlay failed: {e}")
+        
+        return str(output_path.resolve()).replace("\\", "/")omfyUI.
 """
 
 import base64
@@ -41,6 +79,22 @@ class ImageService:
         
         # Cache for reference images (for img2img)
         self._reference_cache: Dict[str, str] = {}
+        
+        # Healthcheck for A1111 backend
+        if self.backend == "sdxl-a1111":
+            self._a1111_healthcheck(self.config["a1111_url"])
+    
+    def _a1111_healthcheck(self, url: str):
+        """Check if A1111 is online and log available models."""
+        try:
+            r = requests.get(f"{url}/sdapi/v1/sd-models", timeout=10)
+            r.raise_for_status()
+            models = r.json()
+            logger.info(f"A1111 online: {len(models)} models available")
+            if models:
+                logger.info(f"Available models: {[m.get('title', 'Unknown') for m in models[:3]]}")
+        except Exception as e:
+            logger.warning(f"A1111 healthcheck failed: {e}")
     
     def generate_panel_image(
         self,
@@ -162,11 +216,12 @@ class ImageService:
             "seed": panel.sdxl_hints.seed or -1,
         }
         
-        # Add model override if specified
-        if hasattr(panel.sdxl_hints, 'model') and panel.sdxl_hints.model:
-            payload["override_settings"] = {"sd_model_checkpoint": panel.sdxl_hints.model}
+        # Add model override (always set from hints or settings)
+        model = getattr(panel.sdxl_hints, "model", None) or self.config["a1111_model"]
+        if model:
+            payload.setdefault("override_settings", {})["sd_model_checkpoint"] = model
         
-        logger.info(f"Sending txt2img request to {base_url}")
+        logger.info(f"Sending txt2img request to {base_url} with model: {model}")
         
         response = requests.post(
             f"{base_url}/sdapi/v1/txt2img",
@@ -177,7 +232,13 @@ class ImageService:
         
         # Parse response and save image
         result = response.json()
-        image_data = base64.b64decode(result["images"][0])
+        b64 = result["images"][0]
+        
+        # Handle data URI wrapper (some A1111 forks include this)
+        if "," in b64:  # "data:image/png;base64,<actual_data>"
+            b64 = b64.split(",", 1)[1]
+        
+        image_data = base64.b64decode(b64)
         
         with open(output_path, "wb") as f:
             f.write(image_data)
@@ -198,8 +259,8 @@ class ImageService:
         with open(reference_image_path, "rb") as f:
             ref_image_data = base64.b64encode(f.read()).decode()
         
-        # Calculate denoising strength from reference strength hint
-        denoising_strength = 1.0 - (panel.reference.strength_hint or 0.6)
+        # Calculate denoising strength (direct mapping: higher hint = stronger carry-over)
+        denoising_strength = min(max(panel.reference.strength_hint or 0.6, 0.1), 0.95)
         
         payload = {
             "init_images": [ref_image_data],
@@ -216,7 +277,12 @@ class ImageService:
             "seed": panel.sdxl_hints.seed or -1,
         }
         
-        logger.info(f"Sending img2img request to {base_url} with strength {denoising_strength}")
+        # Add model override (always set from hints or settings)
+        model = getattr(panel.sdxl_hints, "model", None) or self.config["a1111_model"]
+        if model:
+            payload.setdefault("override_settings", {})["sd_model_checkpoint"] = model
+        
+        logger.info(f"Sending img2img request to {base_url} with model: {model}, strength: {denoising_strength}")
         
         response = requests.post(
             f"{base_url}/sdapi/v1/img2img",
@@ -227,7 +293,13 @@ class ImageService:
         
         # Parse response and save image
         result = response.json()
-        image_data = base64.b64decode(result["images"][0])
+        b64 = result["images"][0]
+        
+        # Handle data URI wrapper (some A1111 forks include this)
+        if "," in b64:  # "data:image/png;base64,<actual_data>"
+            b64 = b64.split(",", 1)[1]
+        
+        image_data = base64.b64decode(b64)
         
         with open(output_path, "wb") as f:
             f.write(image_data)

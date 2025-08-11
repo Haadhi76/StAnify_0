@@ -1,7 +1,9 @@
 
 import uuid
 import logging
+import shutil
 from pathlib import Path
+from typing import Optional, Union
 
 from .chunk_maker_agent import generate_chunks_from_content
 from .chunks_contracts import ChunkSpec
@@ -38,16 +40,18 @@ logger = logging.getLogger(__name__)
 # project root = agentic-visuals-hello/
 BASE_DIR = Path(__file__).resolve().parents[2]
 ASSETS = BASE_DIR / "assets"
-PLACEHOLDER = str((ASSETS / "sample_panel.png").resolve())
+PLACEHOLDER = (ASSETS / "sample_panel.png").resolve()  # Path object, not string
 
-def _ensure_path_or_placeholder(p: str, placeholder: str) -> str:
+def _ensure_path_or_placeholder(p: Optional[Union[str, Path]], placeholder: Path) -> str:
     """Ensure path exists or fallback to placeholder with absolute path."""
     try:
-        if p and Path(p).exists():
-            return str(Path(p).resolve())
+        if p:
+            pp = Path(p)
+            if pp.exists():
+                return str(pp.resolve())
     except Exception:
         pass
-    return str(Path(placeholder).resolve())
+    return str(placeholder.resolve())
 
 
 def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: str) -> dict[str, str]:
@@ -119,6 +123,40 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
         logger.warning(f"Image generation failed, using placeholders: {e}")
         # Fallback to placeholder images
         image_uris = {panel.chunk_id: PLACEHOLDER for panel in panels_out.panels}
+    
+    # Stage images into the run folder (removes path/CWD surprises)
+    RUN_DIR = Path(out) / run_id
+    IMG_DIR = RUN_DIR / "images"
+    IMG_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _stage_image_for_run(src_path: Union[str, Path, None], chunk_id: str) -> str:
+        """
+        Copy the source image into exports/<run_id>/images/<chunk_id>.png and return an absolute path.
+        Falls back to the placeholder if src is missing/too small.
+        """
+        try:
+            p = Path(src_path) if src_path else PLACEHOLDER  # p is Path
+        except TypeError:
+            p = PLACEHOLDER
+
+        if (not p.exists()) or (p.stat().st_size < 1024):
+            p = PLACEHOLDER
+
+        dst = IMG_DIR / f"{chunk_id}.png"
+        try:
+            if p.resolve() != dst.resolve():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(p, dst)
+            return dst.resolve().as_posix()  # Return absolute POSIX path
+        except Exception:
+            return PLACEHOLDER.resolve().as_posix()  # Return absolute POSIX path
+
+    # Stage all images to run-specific directory
+    staged_image_uris = {}
+    for panel in panels_out.panels:
+        raw_img_path = image_uris.get(panel.chunk_id, PLACEHOLDER)   # default to Path, not str
+        staged_image_uris[panel.chunk_id] = _stage_image_for_run(raw_img_path, panel.chunk_id)
+    image_uris = staged_image_uris
     
     # 6. Build initial manifest with default critique
     default_critique = _create_fallback_critique_output()
@@ -261,27 +299,19 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
           f"not_found={[p.chunk_id for p in manifest.panels if p.image_uri and not Path(p.image_uri).exists()]}",
           f"sizes={[Path(p.image_uri).stat().st_size if p.image_uri and Path(p.image_uri).exists() else 0 for p in manifest.panels]}")
     
-    # 9.5. Organize images into run-specific directory
-    images_dir = out / "images"
-    images_dir.mkdir(exist_ok=True)
-    
-    # Copy and reorganize panel images
-    for panel in manifest.panels:
-        if panel.image_uri and Path(panel.image_uri).exists():
-            source_path = Path(panel.image_uri)
-            dest_path = images_dir / f"panel_{panel.chunk_id}.png"
-            
-            if source_path != dest_path:  # Avoid copying to itself
-                import shutil
-                shutil.copy2(source_path, dest_path)
-                # Update manifest to point to organized location
-                panel.image_uri = str(dest_path.resolve()).replace("\\", "/")
-                logger.debug(f"Copied {source_path.name} to organized location: {dest_path}")
-    
     # 10. Export to various formats
     pdf_path = str(out / f"{run_id}.pdf")
     pptx_path = str(out / f"{run_id}.pptx")
     zip_path = str(out / f"{run_id}.zip")
+    
+    # Sanity check before export (one-time debug log)
+    # Sanity check before export (remove after testing)
+    print("Manifest check:",
+          f"chunks={len(manifest.chunks)}",
+          f"panels={len(manifest.panels)}",
+          f"missing_img={[p.chunk_id for p in manifest.panels if not p.image_uri]}",
+          f"not_found={[p.chunk_id for p in manifest.panels if p.image_uri and not Path(p.image_uri).exists()]}",
+          f"sizes={[Path(p.image_uri).stat().st_size if p.image_uri and Path(p.image_uri).exists() else 0 for p in manifest.panels]}")
     
     export_manifest_to_pdf(manifest, pdf_path)
     export_manifest_to_pptx(manifest, pptx_path)

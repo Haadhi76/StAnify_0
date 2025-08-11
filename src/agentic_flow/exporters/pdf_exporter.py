@@ -1,9 +1,10 @@
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+import os
 
 import requests
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageDraw
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -20,6 +21,9 @@ from reportlab.platypus import (
 
 from ..chunks_contracts import ChunkSpec
 from ..manifest_contracts import RunManifest
+
+# Debug visualization toggle
+DEBUG_VIS = os.getenv("EXPORT_DEBUG_VISUAL", "0") == "1"
 
 
 def _overall_score(scores):
@@ -96,6 +100,42 @@ def _as_png_rgb(bio: BytesIO) -> BytesIO:
         out.seek(0)
         return out
 
+def _debug_overlay(bio: BytesIO) -> BytesIO:
+    """Add visual debug overlay if EXPORT_DEBUG_VISUAL=1."""
+    if not DEBUG_VIS:
+        return bio
+    
+    bio.seek(0)
+    out = BytesIO()
+    im = PILImage.open(bio).convert("RGB")
+    dr = ImageDraw.Draw(im)
+    dr.rectangle([10, 10, im.width-10, im.height-10], outline=(255, 0, 0), width=8)
+    dr.text((20, 20), "DEBUG", fill=(255, 0, 0))
+    im.save(out, format="PNG")
+    out.seek(0)
+    return out
+
+def _normalize_to_png_file(src_path: str, tmp_dir: Path) -> Path:
+    """
+    Open the image, normalize to RGB PNG, save to tmp_dir, return the new path.
+    """
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    src = Path(src_path)
+    out = tmp_dir / (src.stem + ".png")
+    
+    with PILImage.open(src) as im:
+        # Apply debug overlay if enabled
+        if DEBUG_VIS:
+            im = im.convert("RGB")
+            dr = ImageDraw.Draw(im)
+            dr.rectangle([10, 10, im.width-10, im.height-10], outline=(255, 0, 0), width=8)
+            dr.text((20, 20), "DEBUG", fill=(255, 0, 0))
+        elif im.mode not in ("RGB", "L", "P"):
+            im = im.convert("RGB")
+        
+        im.save(out, format="PNG")
+    return out
+
 def export_manifest_to_pdf(manifest: RunManifest, out_path: str) -> str:
     page_size = landscape(A4)
     doc = SimpleDocTemplate(out_path, pagesize=page_size, leftMargin=1.2*cm, rightMargin=1.2*cm, topMargin=1.0*cm, bottomMargin=1.0*cm)
@@ -104,6 +144,10 @@ def export_manifest_to_pdf(manifest: RunManifest, out_path: str) -> str:
     styles.add(ParagraphStyle(name="CoverTitle", parent=styles["Title"], fontSize=28, spaceAfter=20, alignment=1))
     styles.add(ParagraphStyle(name="CoverSubtitle", parent=styles["Heading2"], fontSize=18, spaceAfter=15, alignment=1))
     styles.add(ParagraphStyle(name="Objective", parent=styles["BodyText"], leftIndent=20, spaceBefore=6))
+
+    # Create tmp directory for normalized images
+    tmp_img_dir = Path(out_path).with_suffix("")
+    tmp_img_dir.mkdir(parents=True, exist_ok=True)
 
     flow = []
     
@@ -161,13 +205,14 @@ def export_manifest_to_pdf(manifest: RunManifest, out_path: str) -> str:
         title = f"Panel {panel.index + 1}: {chunk.title if chunk else panel.chunk_id}"
         flow.append(Paragraph(title, styles["Heading2"]))
         try:
-            bio = _fetch_image(panel.image_uri)
-            bio = _as_png_rgb(bio)  # normalize to PNG RGB
-            iw, ih = _image_size(bio)
-            scale = min(max_w/iw, max_h/ih, 1.0)
-            flow.append(Image(bio, width=iw*scale, height=ih*scale))
-        except Exception:
-            flow.append(Paragraph("[Image unavailable]", styles["BodyText"]))
+            # CRITICAL: Use path-based embedding instead of BytesIO
+            norm_path = _normalize_to_png_file(panel.image_uri, tmp_img_dir)
+            iw, ih = PILImage.open(norm_path).size
+            scale = min(max_w / iw, max_h / ih, 1.0)
+            # Pass filename to ReportLab, not BytesIO
+            flow.append(Image(str(norm_path), width=iw * scale, height=ih * scale))
+        except Exception as e:
+            flow.append(Paragraph(f"[Image unavailable: {e}]", styles["BodyText"]))
         
         flow.append(Paragraph(panel.caption or "", styles["Caption"]))
         

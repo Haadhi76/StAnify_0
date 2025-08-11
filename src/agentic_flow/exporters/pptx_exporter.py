@@ -1,9 +1,10 @@
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+import os
 
 import requests
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageDraw
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
@@ -12,6 +13,9 @@ from pptx.util import Cm, Pt
 
 from ..chunks_contracts import ChunkSpec
 from ..manifest_contracts import RunManifest
+
+# Debug visualization toggle
+DEBUG_VIS = os.getenv("EXPORT_DEBUG_VISUAL", "0") == "1"
 
 
 def _overall_score(scores):
@@ -83,8 +87,48 @@ def _as_png_rgb(bio: BytesIO) -> BytesIO:
         out.seek(0)
         return out
 
+def _debug_overlay(bio: BytesIO) -> BytesIO:
+    """Add visual debug overlay if EXPORT_DEBUG_VISUAL=1."""
+    if not DEBUG_VIS:
+        return bio
+    
+    bio.seek(0)
+    out = BytesIO()
+    im = PILImage.open(bio).convert("RGB")
+    dr = ImageDraw.Draw(im)
+    dr.rectangle([10, 10, im.width-10, im.height-10], outline=(255, 0, 0), width=8)
+    dr.text((20, 20), "DEBUG", fill=(255, 0, 0))
+    im.save(out, format="PNG")
+    out.seek(0)
+    return out
+
+def _normalize_to_png_file(src_path: str, tmp_dir: Path) -> Path:
+    """
+    Open the image, normalize to RGB PNG, save to tmp_dir, return the new path.
+    """
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    src = Path(src_path)
+    out = tmp_dir / (src.stem + ".png")
+    
+    with PILImage.open(src) as im:
+        # Apply debug overlay if enabled
+        if DEBUG_VIS:
+            im = im.convert("RGB")
+            dr = ImageDraw.Draw(im)
+            dr.rectangle([10, 10, im.width-10, im.height-10], outline=(255, 0, 0), width=8)
+            dr.text((20, 20), "DEBUG", fill=(255, 0, 0))
+        elif im.mode not in ("RGB", "L", "P"):
+            im = im.convert("RGB")
+        
+        im.save(out, format="PNG")
+    return out
+
 def export_manifest_to_pptx(manifest: RunManifest, out_path: str) -> str:
     prs = Presentation()
+    
+    # Create tmp directory for normalized images
+    tmp_img_dir = Path(out_path).with_suffix("")
+    tmp_img_dir.mkdir(parents=True, exist_ok=True)
     
     # === COVER SLIDE ===
     cover_slide = prs.slides.add_slide(prs.slide_layouts[0])  # Title slide layout
@@ -126,15 +170,16 @@ def export_manifest_to_pptx(manifest: RunManifest, out_path: str) -> str:
         area_w = prs.slide_width - left - right_margin
         area_h = prs.slide_height - top - cap_h - Cm(0.8)
         try:
-            bio = _fetch_image(panel.image_uri)
-            bio = _as_png_rgb(bio)  # normalize to PNG RGB
-            pic = s.shapes.add_picture(bio, left, top)
+            # CRITICAL: Use path-based embedding instead of BytesIO
+            norm_path = _normalize_to_png_file(panel.image_uri, tmp_img_dir)
+            pic = s.shapes.add_picture(str(norm_path), left, top)  # filename path
             scale = min(area_w / pic.width, area_h / pic.height)
-            pic.width = int(pic.width * scale); pic.height = int(pic.height * scale)
+            pic.width = int(pic.width * scale)
+            pic.height = int(pic.height * scale)
             pic.left = int(left + (area_w - pic.width) / 2)
-        except Exception:
+        except Exception as e:
             ph = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, area_w, area_h)
-            ph.text = "Image unavailable"
+            ph.text = f"Image unavailable: {e}"
 
         # Caption
         cap = s.shapes.add_textbox(Cm(1.0), prs.slide_height - cap_h - Cm(0.5), prs.slide_width - Cm(2.0), cap_h)
