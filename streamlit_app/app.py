@@ -29,6 +29,10 @@ if "selected_run" not in st.session_state:
     st.session_state.selected_run = None
 if "show_runs" not in st.session_state:
     st.session_state.show_runs = False
+if "last_run_id" not in st.session_state:
+    st.session_state.last_run_id = None
+if "inflight" not in st.session_state:
+    st.session_state.inflight = False
 
 def load_manifest_from_file(manifest_path: str) -> Optional[RunManifest]:
     """Load manifest from JSON file."""
@@ -117,8 +121,8 @@ def render_runs_sidebar():
                 
                 st.sidebar.caption(
                     f"{status_color} {run.status} | "
-                    f"Critique: {run.overall_critique_score:.1f} | "
-                    f"Continuity: {run.image_continuity_score:.1f}"
+                    f"Critique: {getattr(run, 'overall_critique_score', 0.0):.1f} | "
+                    f"Continuity: {getattr(run, 'image_continuity_score', 0.0):.1f}"
                 )
                 st.sidebar.divider()
         else:
@@ -169,8 +173,8 @@ def render_run_details(run_id: str):
         with col2:
             st.metric(
                 "Image Continuity", 
-                f"{run.image_continuity_score:.1f}/10",
-                help=f"Verdict: {run.image_continuity_verdict}"
+                f"{getattr(run, 'image_continuity_score', 0.0):.1f}/10",
+                help=f"Verdict: {getattr(run, 'image_continuity_verdict', 'Not available')}"
             )
         
         # File operations
@@ -323,9 +327,15 @@ def render_backend_status():
     try:
         # Import settings here to get latest values
         from src.agentic_flow.settings import settings
+        import os
         
         # Show detailed configuration at the top
-        st.caption(f"🖼️ Backend: **{settings.image_backend}** | Model: **{settings.stability_model}** | API: {settings.stability_base_url} | Mode: **{settings.stability_api_mode}**")
+        stability_key_loaded = "YES" if bool(os.getenv('STABILITY_API_KEY')) else "NO"
+        st.caption(
+            f"🖼️ Backend: **{settings.image_backend}** | Mode: **{settings.stability_api_mode}** | "
+            f"Model: **{settings.stability_model}** | Base: {settings.stability_base_url} | "
+            f"Key loaded: {stability_key_loaded}"
+        )
         
         status = image_service.get_status()
         active = status["active"]
@@ -414,61 +424,83 @@ def render_new_run_interface():
                 else:
                     st.error(f"❌ Topic resolution failed: {topic_info.get('error', 'Unknown error')}")
         
-        submitted = st.form_submit_button("🚀 Generate Content", use_container_width=True)
+        submitted = st.form_submit_button("🚀 Generate Content", use_container_width=True, disabled=st.session_state.inflight)
     
-    if submitted:
+    if submitted and not st.session_state.inflight:
         if not prompt.strip():
             st.error("Please enter a prompt")
             return
         
-        # Set up directories
-        BASE_DIR = Path(__file__).resolve().parents[1]
-        kb_dir = str((BASE_DIR / "kb").resolve())
-        out_dir = str((BASE_DIR / "exports").resolve())
+        st.session_state.inflight = True
         
-        # Run pipeline with progress tracking
-        with st.spinner("🔄 Running AI pipeline..."):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+        try:
+            # Set up directories
+            BASE_DIR = Path(__file__).resolve().parents[1]
+            kb_dir = str((BASE_DIR / "kb").resolve())
+            out_dir = str((BASE_DIR / "exports").resolve())
             
-            try:
-                # Update progress
-                progress_bar.progress(20)
-                status_text.text("🧠 Loading curriculum knowledge...")
+            # Run pipeline with progress tracking
+            with st.spinner("🔄 Running AI pipeline..."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-                progress_bar.progress(40)
-                status_text.text("✨ Generating content with LLM agents...")
-                
-                progress_bar.progress(60)
-                status_text.text("🎨 Creating visual panels...")
-                
-                progress_bar.progress(80)
-                status_text.text("🔍 Evaluating content quality and continuity...")
-                
-                # Run the actual pipeline
-                result = run_demo(year, subject, prompt, kb_dir, out_dir)
-                
-                progress_bar.progress(100)
-                status_text.text("✅ Content generation complete!")
-                
-                # Show results
-                st.success(f"🎉 Content generated successfully! Run ID: {result['run_id']}")
-                
-                # Display metrics if available
-                if 'continuity_result' in result and result['continuity_result']:
-                    continuity = result['continuity_result']
-                    col1, col2, col3 = st.columns(3)
+                try:
+                    # Update progress
+                    progress_bar.progress(20)
+                    status_text.text("🧠 Loading curriculum knowledge...")
                     
-                    with col1:
-                        st.metric("Content Quality", "Generated")
-                    with col2:
-                        st.metric(
-                            "Image Continuity", 
-                            continuity.verdict,
-                            help=f"Score: {continuity.overall_score:.2f}"
-                        )
-                    with col3:
-                        st.metric("Status", "Completed")
+                    progress_bar.progress(40)
+                    status_text.text("✨ Generating content with LLM agents...")
+                    
+                    progress_bar.progress(60)
+                    status_text.text("🎨 Creating visual panels...")
+                    
+                    progress_bar.progress(80)
+                    status_text.text("🔍 Evaluating content quality and continuity...")
+                    
+                    # Run the actual pipeline
+                    result = run_demo(year, subject, prompt, kb_dir, out_dir)
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Content generation complete!")
+                    
+                    # Store result
+                    st.session_state.last_run_id = result["run_id"]
+                    
+                except Exception as e:
+                    st.error(f"❌ Generation failed: {str(e)}")
+                    # logger.exception("Pipeline execution failed")  # Remove since logger not imported
+                    return
+        finally:
+            st.session_state.inflight = False
+        
+        st.rerun()
+    
+    # Show last run results if available
+    if st.session_state.last_run_id:
+        BASE_DIR = Path(__file__).resolve().parents[1]
+        manifest_path = BASE_DIR / "exports" / f"{st.session_state.last_run_id}.manifest.json"
+        
+        if manifest_path.exists():
+            # Show results
+            st.success(f"🎉 Content generated successfully! Run ID: {st.session_state.last_run_id}")
+            
+            # Load and display manifest
+            manifest = load_manifest_from_file(str(manifest_path))
+            if manifest and hasattr(manifest, 'image_continuity_result') and manifest.image_continuity_result:
+                continuity = manifest.image_continuity_result
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Content Quality", "Generated")
+                with col2:
+                    st.metric(
+                        "Image Continuity", 
+                        continuity.verdict,
+                        help=f"Score: {continuity.overall_score:.2f}"
+                    )
+                with col3:
+                    st.metric("Status", "Completed")
                 
                 # Download buttons
                 st.subheader("📥 Download Results")
@@ -508,12 +540,6 @@ def render_new_run_interface():
                                 st.image(img_path, caption=f"Panel {i+1} ({chunk_id})")
                             else:
                                 st.error(f"Panel {i+1} not found")
-                
-            except Exception as e:
-                progress_bar.progress(100)
-                status_text.text("❌ Generation failed")
-                st.error(f"Content generation failed: {e}")
-                st.exception(e)
 
 # Main app logic
 def main():

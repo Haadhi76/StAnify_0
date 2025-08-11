@@ -200,10 +200,10 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
         logger.warning(f"Critique agent failed, using fallback: {e}")
         overall_crit = _create_fallback_critique_output()
     
-    # 8. Evaluate image continuity and regenerate if needed (max 2 attempts)
+    # 8. Evaluate image continuity and regenerate if needed (disabled while stabilizing API)
     image_continuity_result = None
     regeneration_attempts = 0
-    max_regenerations = 2
+    max_regenerations = 0  # was 2; re-enable after Stability is working
     
     while regeneration_attempts <= max_regenerations:
         try:

@@ -10,12 +10,24 @@ Creates comprehensive ZIP packages containing:
 
 import json
 import zipfile
+import datetime
 from pathlib import Path
 from typing import Dict, Any
 
 from ..manifest_contracts import RunManifest
 from .pdf_exporter import export_manifest_to_pdf
 from .pptx_exporter import export_manifest_to_pptx
+
+
+def _json_safe(o):
+    """JSON serializer for objects not serializable by default json code"""
+    if isinstance(o, (datetime.datetime, datetime.date)):
+        return o.isoformat()
+    if isinstance(o, Path):
+        return o.as_posix()
+    if hasattr(o, "dict"):
+        return o.dict()
+    return str(o)
 
 
 def export_manifest_to_zip(manifest: RunManifest, out_path: str, temp_dir: str = None) -> str:
@@ -50,7 +62,7 @@ def export_manifest_to_zip(manifest: RunManifest, out_path: str, temp_dir: str =
         # 1. Export manifest as JSON
         manifest_dict = manifest.dict()
         with open(manifest_file, 'w', encoding='utf-8') as f:
-            json.dump(manifest_dict, f, indent=2, ensure_ascii=False)
+            json.dump(manifest_dict, f, indent=2, ensure_ascii=False, default=_json_safe)
         
         # 2. Export PDF
         export_manifest_to_pdf(manifest, str(pdf_file))
@@ -166,7 +178,7 @@ def create_export_package(manifest: RunManifest, base_output_dir: str) -> Dict[s
         
         # Create manifest JSON
         with open(exports['manifest'], 'w', encoding='utf-8') as f:
-            json.dump(manifest.dict(), f, indent=2, ensure_ascii=False)
+            json.dump(manifest.dict(), f, default=_json_safe, indent=2, ensure_ascii=False)
         
         # Create PDF and PPTX
         export_manifest_to_pdf(manifest, exports['pdf'])

@@ -26,6 +26,36 @@ HEALTH_TTL_SEC = 30         # cache health result for 30s
 CB_OPEN_SEC    = 60         # circuit open for 60s after persistent failures
 MAX_FAILS      = 2          # open the circuit after N consecutive failures
 
+# SDXL 1.0 allowed dimensions for Stability engines API
+_SDXL10_ALLOWED = [
+    (1024,1024),(1152,896),(896,1152),
+    (1216,832),(832,1216),(1344,768),
+    (768,1344),(1536,640),(640,1536),
+]
+
+def _snap_to_sdxl10_allowed(w: int, h: int) -> tuple[int,int]:
+    """Snap dimensions to SDXL 1.0 allowed sizes for Stability engines API."""
+    target_area = w*h
+    target_ar = w/h
+    best = None
+    best_score = 10**9
+    for aw, ah in _SDXL10_ALLOWED:
+        area = aw*ah
+        ar = aw/ah
+        score = abs(area - target_area) + 2000*abs(ar - target_ar)
+        if score < best_score:
+            best_score = score; best = (aw, ah)
+    return best
+
+def _is_placeholder_or_disallowed(path: str) -> bool:
+    """Check if image is a placeholder or has disallowed dimensions for SDXL engines."""
+    try:
+        im = Image.open(path)
+        w, h = im.size
+        return (w, h) not in _SDXL10_ALLOWED
+    except Exception:
+        return True
+
 
 @dataclass
 class HealthState:
@@ -418,6 +448,18 @@ class ImageService:
             raise ImageGenerationError("STABILITY_API_KEY missing")
         return {"Authorization": f"Bearer {key}"}
     
+    def _get_stability_balance(self) -> float:
+        """Get current account balance from Stability API."""
+        try:
+            base_url = self.config["stability_url"]
+            headers = self._stability_headers()
+            response = requests.get(f"{base_url}/v1/user/balance", headers=headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            return float(data.get("credits", 0))
+        except Exception as e:
+            logger.warning(f"Failed to get Stability balance: {e}")
+            return None
     def _stability_extract_b64(self, data: dict) -> bytes:
         """
         Extract base64 image data from Stability API response.
@@ -452,6 +494,12 @@ class ImageService:
         Returns:
             Raw PNG bytes from Stability API
         """
+        # Check available balance before proceeding
+        balance = self._get_stability_balance()
+        if balance is not None and balance < 0.009:
+            logger.warning(f"Low Stability API balance: ${balance:.6f}. Txt2img typically costs $0.008-0.009")
+            # Don't fail immediately - let API reject if needed
+        
         w = panel.sdxl_hints.width or self.config["width"]
         h = panel.sdxl_hints.height or self.config["height"]
         guidance = panel.sdxl_hints.cfg_scale or self.config["stability_guidance"]
@@ -461,33 +509,44 @@ class ImageService:
         mode = self.config["stability_mode"]
         
         if mode == "engines":
+            # Snap dimensions to SDXL 1.0 allowed sizes
+            w, h = _snap_to_sdxl10_allowed(w, h)
+            
             # Engines API: /v1/generation/{engine}/text-to-image
             path = self.config["stability_txt2img_path"].format(engine=model)
             url = f"{base_url.rstrip('/')}{path}"
+
+            pos = panel.positive_prompt or ""
+            neg = (panel.negative_prompt or "").strip()
+            text_prompts = [{"text": pos, "weight": 1.0}]
+            if neg:
+                text_prompts.append({"text": neg, "weight": -1.0})
+
             payload = {
-                "text_prompts": [{"text": panel.positive_prompt, "weight": 1.0}],
+                "text_prompts": text_prompts,
                 "cfg_scale": guidance,
-                "height": h,
+                "height": h, 
                 "width": w,
                 "samples": 1,
                 "steps": steps,
-                "seed": panel.sdxl_hints.seed,
-                "style_preset": None,
+                "seed": panel.sdxl_hints.seed or None,
+                # optional: "clip_guidance_preset": "FAST_BLUE"
             }
-            # Add negative prompt if provided
-            if panel.negative_prompt:
-                payload["text_prompts"].append({
-                    "text": panel.negative_prompt, 
-                    "weight": -1.0
-                })
             
             # Remove None values
             payload = {k: v for k, v in payload.items() if v is not None}
             
-            headers = {**self._stability_headers(), "Accept": "application/json"}
-            r = requests.post(url, headers=headers, json=payload, timeout=settings.http_timeout)
-            r.raise_for_status()
-            return self._stability_extract_b64(r.json())
+            headers = {**self._stability_headers(), "Accept":"application/json"}
+
+            try:
+                r = requests.post(url, headers=headers, json=payload, timeout=settings.http_timeout)
+                r.raise_for_status()
+                return self._stability_extract_b64(r.json())
+            except requests.HTTPError as e:
+                body = getattr(e.response, "text", "")
+                logger.error("Stability engines txt2img failed: %s\nPayload:\n%s\nResponse:\n%s",
+                             e, json.dumps(payload, indent=2)[:2000], body[:2000])
+                raise
             
         else:  # "images" mode
             path = self.config["stability_txt2img_path"]
@@ -524,6 +583,11 @@ class ImageService:
         Returns:
             Raw PNG bytes from Stability API
         """
+        # Check if reference image is placeholder or has disallowed dimensions for engines mode
+        if self.config["stability_mode"] == "engines" and _is_placeholder_or_disallowed(ref_path):
+            logger.warning(f"Reference image {ref_path} not suitable for SDXL engines img2img, falling back to txt2img")
+            return self._stability_txt2img(panel, base_url)
+        
         w = panel.sdxl_hints.width or self.config["width"]
         h = panel.sdxl_hints.height or self.config["height"]
         guidance = panel.sdxl_hints.cfg_scale or self.config["stability_guidance"]
@@ -536,31 +600,41 @@ class ImageService:
         mode = self.config["stability_mode"]
         
         if mode == "engines":
+            # For engines API, dimensions come from input image, no snapping needed
+            
             # Engines API: /v1/generation/{engine}/image-to-image
             path = self.config["stability_img2img_path"].format(engine=model)
             url = f"{base_url.rstrip('/')}{path}"
-            files = {"init_image": open(ref_path, "rb")}  # engines API expects 'init_image'
+
+            pos = panel.positive_prompt or ""
+            neg = (panel.negative_prompt or "").strip()
+
+            files = {"init_image": open(ref_path, "rb")}
             data = {
-                "text_prompts": json.dumps([{"text": panel.positive_prompt, "weight": 1.0}]),
+                "text_prompts[0][text]": pos,
+                "text_prompts[0][weight]": "1.0",
                 "cfg_scale": str(guidance),
-                "height": str(h),
-                "width": str(w),
+                # Note: height/width not allowed for img2img in engines API
                 "samples": "1",
                 "steps": str(steps),
-                "image_strength": str(strength),  # engines param name
+                "image_strength": str(strength),
                 "seed": str(panel.sdxl_hints.seed or 0),
             }
             
-            # Add negative prompt if provided
-            if panel.negative_prompt:
-                prompts = json.loads(data["text_prompts"])
-                prompts.append({"text": panel.negative_prompt, "weight": -1.0})
-                data["text_prompts"] = json.dumps(prompts)
-            
+            # Add negative prompt as second text_prompts entry if provided
+            if neg:
+                data["text_prompts[1][text]"] = neg
+                data["text_prompts[1][weight]"] = "-1.0"
+
             try:
                 r = requests.post(url, headers=self._stability_headers(), data=data, files=files, timeout=settings.http_timeout)
                 r.raise_for_status()
                 return self._stability_extract_b64(r.json())
+            except requests.HTTPError as e:
+                body = getattr(e.response, "text", "")
+                logger.error("Stability engines img2img failed: %s\nForm-data:\n%s\nResponse:\n%s",
+                             e, json.dumps({**data, "init_image":"<binary>"}, indent=2)[:2000], body[:2000])
+                raise
             finally:
                 files["init_image"].close()
                 
