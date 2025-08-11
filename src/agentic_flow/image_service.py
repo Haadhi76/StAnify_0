@@ -1,44 +1,6 @@
 """
 Image generation service with multiple backend support.
-Supports placeholder images, Automa    def _generate_placeholder(self, output_path: Path, label: str = "") -> str:
-        """Generate a placeholder image with visible content and label."""
-        
-        sample_path = Path(settings.assets_dir) / "sample_panel.png"
-        
-        if sample_path.exists():
-            shutil.copy2(sample_path, output_path)
-        else:
-            # Create a simple colored rectangle if no sample exists
-            self._create_simple_placeholder(output_path)
-        
-        # Overlay border and label so it's clearly not blank
-        try:
-            from PIL import Image, ImageDraw, ImageFont
-            img = Image.open(output_path).convert("RGB")
-            dr = ImageDraw.Draw(img)
-            w, h = img.size
-            
-            # Draw border
-            dr.rectangle([10, 10, w-10, h-10], outline=(60, 90, 160), width=8)
-            # Draw header band
-            dr.rectangle([0, 0, w, 80], fill=(60, 90, 160))
-            
-            # Add text label
-            txt = label or "StAnify Placeholder"
-            # Try to load a font, fall back to default
-            try:
-                font = ImageFont.truetype("arial.ttf", 24)
-            except:
-                font = ImageFont.load_default()
-                
-            dr.text((24, 24), txt[:60], fill=(255, 255, 255), font=font)
-            
-            img.save(output_path, "PNG")
-            logger.info(f"Enhanced placeholder with label '{txt[:30]}...' at {output_path}")
-        except Exception as e:
-            logger.warning(f"Placeholder overlay failed: {e}")
-        
-        return str(output_path.resolve()).replace("\\", "/")omfyUI.
+Supports placeholder images, Automatic1111, and ComfyUI.
 """
 
 import base64
@@ -121,7 +83,7 @@ class ImageService:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
         if self.backend == "placeholder":
-            return self._generate_placeholder(output_path)
+            return self._generate_placeholder(output_path, label=f"Panel {panel.chunk_id}")
         
         elif self.backend == "sdxl-a1111":
             return self._generate_a1111(panel, output_path, reference_image_path)
@@ -131,20 +93,45 @@ class ImageService:
         
         else:
             logger.warning(f"Unknown backend '{self.backend}', falling back to placeholder")
-            return self._generate_placeholder(output_path)
+            return self._generate_placeholder(output_path, label=f"Panel {panel.chunk_id}")
     
-    def _generate_placeholder(self, output_path: Path) -> str:
-        """Generate placeholder image by copying sample asset."""
+    def _generate_placeholder(self, output_path: Path, label: str = "") -> str:
+        """Generate a placeholder image with visible content and label."""
         
         sample_path = Path(settings.assets_dir) / "sample_panel.png"
         
         if sample_path.exists():
             shutil.copy2(sample_path, output_path)
-            logger.info(f"Copied placeholder image to {output_path}")
         else:
             # Create a simple colored rectangle if no sample exists
             self._create_simple_placeholder(output_path)
-            logger.info(f"Created simple placeholder at {output_path}")
+        
+        # Overlay border and label so it's clearly not blank
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            img = Image.open(output_path).convert("RGB")
+            dr = ImageDraw.Draw(img)
+            w, h = img.size
+            
+            # Draw border
+            dr.rectangle([10, 10, w-10, h-10], outline=(60, 90, 160), width=8)
+            # Draw header band
+            dr.rectangle([0, 0, w, 80], fill=(60, 90, 160))
+            
+            # Add text label
+            txt = label or "StAnify Placeholder"
+            # Try to load a font, fall back to default
+            try:
+                font = ImageFont.truetype("arial.ttf", 24)
+            except:
+                font = ImageFont.load_default()
+                
+            dr.text((24, 24), txt[:60], fill=(255, 255, 255), font=font)
+            
+            img.save(output_path, "PNG")
+            logger.info(f"Enhanced placeholder with label '{txt[:30]}...' at {output_path}")
+        except Exception as e:
+            logger.warning(f"Placeholder overlay failed: {e}")
         
         return str(output_path.resolve()).replace("\\", "/")
     
@@ -194,10 +181,16 @@ class ImageService:
             else:
                 return self._a1111_txt2img(panel, output_path, base_url)
                 
+        except requests.HTTPError as e:
+            logger.error(f"A1111 HTTP error: {e}")
+            if hasattr(e, 'response') and e.response:
+                logger.error(f"A1111 response: {e.response.text}")
+            # Fallback to placeholder
+            return self._generate_placeholder(output_path, label=f"A1111 Error: {panel.chunk_id}")
         except Exception as e:
             logger.error(f"A1111 generation failed: {e}")
             # Fallback to placeholder
-            return self._generate_placeholder(output_path)
+            return self._generate_placeholder(output_path, label=f"Failed: {panel.chunk_id}")
     
     def _a1111_txt2img(self, panel: PanelSpec, output_path: Path, base_url: str) -> str:
         """Generate image using txt2img API."""
@@ -316,7 +309,7 @@ class ImageService:
         """Generate image using ComfyUI (future implementation)."""
         
         logger.warning("ComfyUI backend not yet implemented, falling back to placeholder")
-        return self._generate_placeholder(output_path)
+        return self._generate_placeholder(output_path, label=f"ComfyUI: {panel.chunk_id}")
     
     def generate_panel_batch(
         self,
@@ -360,9 +353,15 @@ class ImageService:
                 logger.error(f"Failed to generate panel {panel.chunk_id}: {e}")
                 # Continue with placeholder for failed panels
                 placeholder_path = self._generate_placeholder(
-                    Path(output_dir) / f"panel_{panel.chunk_id}_error.png"
+                    Path(output_dir) / f"panel_{panel.chunk_id}_error.png",
+                    label=f"Error: {panel.chunk_id}"
                 )
                 results[panel.chunk_id] = placeholder_path
+        
+        # Safety net: detect accidental placeholder fallbacks
+        if (self.backend == "sdxl-a1111" and results and 
+            len({Path(p).stat().st_size for p in results.values()}) == 1):
+            logger.warning("All panels identical size — likely placeholder fallback or failed A1111 calls.")
         
         return results
 
