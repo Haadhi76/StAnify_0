@@ -3,6 +3,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import requests
+from PIL import Image as PILImage
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
@@ -71,6 +72,17 @@ def _fetch_image(uri: str) -> BytesIO:
         data = f.read()
     bio = BytesIO(data); bio.seek(0); return bio
 
+def _as_png_rgb(bio: BytesIO) -> BytesIO:
+    """Convert image to PNG RGB format for PPTX compatibility."""
+    bio.seek(0)
+    with PILImage.open(bio) as im:
+        if im.mode not in ("RGB", "L", "P"):
+            im = im.convert("RGB")
+        out = BytesIO()
+        im.save(out, format="PNG")
+        out.seek(0)
+        return out
+
 def export_manifest_to_pptx(manifest: RunManifest, out_path: str) -> str:
     prs = Presentation()
     
@@ -83,7 +95,7 @@ def export_manifest_to_pptx(manifest: RunManifest, out_path: str) -> str:
     subtitle_text += "📋 Learning Objectives:\n"
     
     # Extract or create objectives
-    objectives = getattr(manifest.refined_prompt, 'objectives', None)
+    objectives = getattr(manifest.refined_prompt, 'learning_objectives', None)
     if not objectives:
         objectives = [
             f"Understand {manifest.refined_prompt.topic_title.lower()}",
@@ -115,6 +127,7 @@ def export_manifest_to_pptx(manifest: RunManifest, out_path: str) -> str:
         area_h = prs.slide_height - top - cap_h - Cm(0.8)
         try:
             bio = _fetch_image(panel.image_uri)
+            bio = _as_png_rgb(bio)  # normalize to PNG RGB
             pic = s.shapes.add_picture(bio, left, top)
             scale = min(area_w / pic.width, area_h / pic.height)
             pic.width = int(pic.width * scale); pic.height = int(pic.height * scale)
@@ -126,6 +139,16 @@ def export_manifest_to_pptx(manifest: RunManifest, out_path: str) -> str:
         # Caption
         cap = s.shapes.add_textbox(Cm(1.0), prs.slide_height - cap_h - Cm(0.5), prs.slide_width - Cm(2.0), cap_h)
         tf = cap.text_frame; tf.clear(); q = tf.paragraphs[0]; q.text = panel.caption or ""; q.font.size = Pt(18); q.alignment = PP_PARAGRAPH_ALIGNMENT.CENTER
+        
+        # Add chunk body text under the caption
+        if panel.chunk_id in chunk_by_id:
+            ch = chunk_by_id[panel.chunk_id]
+            if ch.text:
+                # Add chunk text in a smaller text box below caption
+                chunk_text_box = s.shapes.add_textbox(Cm(1.0), prs.slide_height - Cm(1.5), prs.slide_width - Cm(2.0), Cm(0.8))
+                chunk_tf = chunk_text_box.text_frame; chunk_tf.clear()
+                chunk_p = chunk_tf.paragraphs[0]; chunk_p.text = ch.text[:200] + "..." if len(ch.text) > 200 else ch.text
+                chunk_p.font.size = Pt(12); chunk_p.alignment = PP_PARAGRAPH_ALIGNMENT.LEFT
 
     # === CLOSING SLIDE ===
     closing_slide = prs.slides.add_slide(prs.slide_layouts[1])  # Title and content layout
@@ -146,7 +169,8 @@ def export_manifest_to_pptx(manifest: RunManifest, out_path: str) -> str:
     # Add critique information if available
     if manifest.overall_critique:
         critique = manifest.overall_critique
-        verdict_emoji = "🟢" if critique.verdict == "Accept" else "🟡" if critique.verdict == "Revise" else "🔴"
+        verdict_map = {"Pass": "🟢", "Soft Pass": "🟡", "Fail": "🔴"}
+        verdict_emoji = verdict_map.get(critique.verdict, "🔴")
         
         success_text += f"\n📊 Content Quality Assessment:\n"
         success_text += f"Overall Verdict: {verdict_emoji} {critique.verdict}\n"
@@ -154,9 +178,10 @@ def export_manifest_to_pptx(manifest: RunManifest, out_path: str) -> str:
         if hasattr(critique, 'scores') and critique.scores:
             scores = critique.scores
             success_text += f"Quality Scores: "
-            success_text += f"Clarity: {getattr(scores, 'clarity', 'N/A')} | "
-            success_text += f"Engagement: {getattr(scores, 'engagement', 'N/A')} | "
-            success_text += f"Accuracy: {getattr(scores, 'accuracy', 'N/A')}\n"
+            success_text += f"Alignment: {getattr(scores, 'alignment', 'N/A')} | "
+            success_text += f"Vocabulary: {getattr(scores, 'vocab', 'N/A')} | "
+            success_text += f"Scope: {getattr(scores, 'scope', 'N/A')} | "
+            success_text += f"Cognitive Load: {getattr(scores, 'cognitive_load', 'N/A')}\n"
         
         if critique.evidence:
             success_text += f"\nKey Feedback:\n"

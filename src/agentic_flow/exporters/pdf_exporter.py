@@ -85,6 +85,17 @@ def _image_size(bio: BytesIO):
     with PILImage.open(bio) as im:
         return im.width, im.height
 
+def _as_png_rgb(bio: BytesIO) -> BytesIO:
+    """Convert image to PNG RGB format for ReportLab compatibility."""
+    bio.seek(0)
+    with PILImage.open(bio) as im:
+        if im.mode not in ("RGB", "L", "P"):
+            im = im.convert("RGB")
+        out = BytesIO()
+        im.save(out, format="PNG")
+        out.seek(0)
+        return out
+
 def export_manifest_to_pdf(manifest: RunManifest, out_path: str) -> str:
     page_size = landscape(A4)
     doc = SimpleDocTemplate(out_path, pagesize=page_size, leftMargin=1.2*cm, rightMargin=1.2*cm, topMargin=1.0*cm, bottomMargin=1.0*cm)
@@ -107,7 +118,7 @@ def export_manifest_to_pdf(manifest: RunManifest, out_path: str) -> str:
     flow.append(Paragraph("📋 Learning Objectives:", styles["Heading2"]))
     
     # Extract objectives from refined prompt or create generic ones
-    objectives = getattr(manifest.refined_prompt, 'objectives', None)
+    objectives = getattr(manifest.refined_prompt, 'learning_objectives', None)
     if not objectives:
         # Generate default objectives based on topic
         objectives = [
@@ -127,7 +138,7 @@ def export_manifest_to_pdf(manifest: RunManifest, out_path: str) -> str:
     
     meta_tbl = [
         ["Run ID", manifest.task.run_id],
-        ["Generated", manifest.task.run_id[:8] + "..." if len(manifest.task.run_id) > 8 else manifest.task.run_id],
+        ["Generated", manifest.task.created_at.isoformat()],
         ["Content Panels", str(len(manifest.panels))],
         ["Quality Score", f"{overall if overall is not None else 'N/A'}"]
     ]
@@ -151,12 +162,20 @@ def export_manifest_to_pdf(manifest: RunManifest, out_path: str) -> str:
         flow.append(Paragraph(title, styles["Heading2"]))
         try:
             bio = _fetch_image(panel.image_uri)
+            bio = _as_png_rgb(bio)  # normalize to PNG RGB
             iw, ih = _image_size(bio)
             scale = min(max_w/iw, max_h/ih, 1.0)
             flow.append(Image(bio, width=iw*scale, height=ih*scale))
         except Exception:
             flow.append(Paragraph("[Image unavailable]", styles["BodyText"]))
+        
         flow.append(Paragraph(panel.caption or "", styles["Caption"]))
+        
+        # Add chunk body text under the caption
+        if panel.chunk_id in chunk_by_id:
+            ch = chunk_by_id[panel.chunk_id]
+            flow.append(Paragraph(ch.text, styles["BodyText"]))
+        
         if i < len(manifest.panels) - 1:
             flow.append(PageBreak())
     
@@ -185,15 +204,17 @@ def export_manifest_to_pdf(manifest: RunManifest, out_path: str) -> str:
         flow.append(Paragraph("📊 Content Quality Assessment", styles["Heading2"]))
         
         critique = manifest.overall_critique
-        verdict_emoji = "🟢" if critique.verdict == "Accept" else "🟡" if critique.verdict == "Revise" else "🔴"
+        verdict_map = {"Pass": "🟢", "Soft Pass": "🟡", "Fail": "🔴"}
+        verdict_emoji = verdict_map.get(critique.verdict, "🔴")
         
         flow.append(Paragraph(f"Overall Verdict: {verdict_emoji} {critique.verdict}", styles["BodyText"]))
         
         if hasattr(critique, 'scores') and critique.scores:
             scores = critique.scores
-            score_text = f"Clarity: {getattr(scores, 'clarity', 'N/A')} | "
-            score_text += f"Engagement: {getattr(scores, 'engagement', 'N/A')} | "
-            score_text += f"Accuracy: {getattr(scores, 'accuracy', 'N/A')}"
+            score_text = f"Alignment: {getattr(scores, 'alignment', 'N/A')} | "
+            score_text += f"Vocabulary: {getattr(scores, 'vocab', 'N/A')} | "
+            score_text += f"Scope: {getattr(scores, 'scope', 'N/A')} | "
+            score_text += f"Cognitive Load: {getattr(scores, 'cognitive_load', 'N/A')}"
             flow.append(Paragraph(score_text, styles["BodyText"]))
         
         if critique.evidence:

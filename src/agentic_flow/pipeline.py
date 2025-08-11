@@ -245,11 +245,12 @@ def run_demo(year: str, subject: str, user_prompt: str, kb_dir: str, out_dir: st
     )
 
     # Debug manifest before export
-    print("Manifest summary:",
+    print("Manifest check:",
           f"chunks={len(manifest.chunks)}",
           f"panels={len(manifest.panels)}",
           f"missing_img={[p.chunk_id for p in manifest.panels if not p.image_uri]}",
-          f"not_found={[p.chunk_id for p in manifest.panels if p.image_uri and not Path(p.image_uri).exists()]}")
+          f"not_found={[p.chunk_id for p in manifest.panels if p.image_uri and not Path(p.image_uri).exists()]}",
+          f"sizes={[Path(p.image_uri).stat().st_size if p.image_uri and Path(p.image_uri).exists() else 0 for p in manifest.panels]}")
     
     # 10. Export to various formats
     pdf_path = str(out / f"{run_id}.pdf")
