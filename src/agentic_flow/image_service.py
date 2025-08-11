@@ -8,6 +8,8 @@ import io
 import json
 import logging
 import shutil
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -18,6 +20,20 @@ from .image_panels_contracts import PanelSpec, SDXLHints
 from .settings import settings
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker constants
+HEALTH_TTL_SEC = 30         # cache health result for 30s
+CB_OPEN_SEC    = 60         # circuit open for 60s after persistent failures
+MAX_FAILS      = 2          # open the circuit after N consecutive failures
+
+
+@dataclass
+class HealthState:
+    """Tracks health status and circuit breaker state for A1111."""
+    a1111_ok: bool = False
+    last_check_ts: float = 0.0
+    consecutive_failures: int = 0
+    cb_open_until: float = 0.0
 
 
 class ImageGenerationError(Exception):
@@ -30,21 +46,88 @@ class ImageService:
     Service for generating images with multiple backend support.
     
     Backends:
+    - auto: Automatically choose best available backend
     - placeholder: Uses existing local PNG files
     - sdxl-a1111: Automatic1111 REST API with SDXL
     - sdxl-comfyui: ComfyUI graph-based generation (future)
     """
     
     def __init__(self):
-        self.backend = settings.image_backend
+        self.backend = settings.image_backend        # "auto" or explicit
         self.config = settings.get_image_config()
+        self._health = HealthState()
         
         # Cache for reference images (for img2img)
         self._reference_cache: Dict[str, str] = {}
         
-        # Healthcheck for A1111 backend
-        if self.backend == "sdxl-a1111":
-            self._a1111_healthcheck(self.config["a1111_url"])
+        # Choose initial active backend
+        self._active_backend = self._choose_backend(initial=True)
+    
+    def _a1111_available(self) -> bool:
+        """Check if A1111 is available with circuit breaker logic."""
+        now = time.time()
+        
+        # Circuit breaker open?
+        if now < self._health.cb_open_until:
+            logger.debug("A1111 circuit breaker open")
+            return False
+            
+        # Cached recent check?
+        if (now - self._health.last_check_ts) < HEALTH_TTL_SEC:
+            return self._health.a1111_ok
+            
+        # Fresh check
+        try:
+            r = requests.get(f"{self.config['a1111_url']}/sdapi/v1/sd-models", timeout=5)
+            r.raise_for_status()
+            self._health.a1111_ok = True
+            self._health.consecutive_failures = 0
+            logger.debug("A1111 health check: OK")
+        except Exception as e:
+            self._health.a1111_ok = False
+            self._health.consecutive_failures += 1
+            logger.debug(f"A1111 health check failed: {e}")
+            
+            # Open circuit breaker after persistent failures
+            if self._health.consecutive_failures >= MAX_FAILS:
+                self._health.cb_open_until = now + CB_OPEN_SEC
+                logger.warning(f"A1111 circuit breaker opened after {MAX_FAILS} failures")
+        finally:
+            self._health.last_check_ts = now
+            
+        return self._health.a1111_ok
+    
+    def _choose_backend(self, initial=False) -> str:
+        """Choose the best available backend based on configuration and health."""
+        configured = self.backend  # "auto", "sdxl-a1111", "placeholder"
+        
+        if configured == "auto":
+            chosen = "sdxl-a1111" if self._a1111_available() else "placeholder"
+            if initial:
+                logger.info(f"Auto backend selection: {chosen}")
+            return chosen
+            
+        # Explicit config: honor it, but we'll still failover per-call
+        return configured
+    
+    def get_status(self) -> dict:
+        """Get current backend status for monitoring and UI."""
+        return {
+            "configured": self.backend,
+            "active": self._active_backend,
+            "a1111_ok": self._a1111_available(),
+            "cb_open_until": self._health.cb_open_until,
+            "last_check": self._health.last_check_ts,
+            "consecutive_failures": self._health.consecutive_failures,
+        }
+    
+    def _ensure_active(self):
+        """Re-evaluate active backend in auto mode."""
+        if self.backend == "auto":
+            new_backend = self._choose_backend()
+            if new_backend != self._active_backend:
+                logger.info(f"Image backend switched: {self._active_backend} → {new_backend}")
+                self._active_backend = new_backend
     
     def _a1111_healthcheck(self, url: str):
         """Check if A1111 is online and log available models."""
@@ -78,21 +161,35 @@ class ImageService:
         Raises:
             ImageGenerationError: If generation fails
         """
+        # Re-evaluate active backend in auto mode
+        self._ensure_active()
+        backend = self._active_backend
         
         output_path = Path(output_dir) / f"panel_{panel.chunk_id}.png"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        if self.backend == "placeholder":
-            return self._generate_placeholder(output_path, label=f"Panel {panel.chunk_id}")
+        if backend == "placeholder":
+            return self._generate_placeholder(output_path, label=panel.caption or "placeholder")
         
-        elif self.backend == "sdxl-a1111":
-            return self._generate_a1111(panel, output_path, reference_image_path)
+        elif backend == "sdxl-a1111":
+            try:
+                return self._generate_a1111(panel, output_path, reference_image_path)
+            except Exception as e:
+                # Mark health failure & maybe open circuit
+                self._health.a1111_ok = False
+                self._health.consecutive_failures += 1
+                if self._health.consecutive_failures >= MAX_FAILS:
+                    self._health.cb_open_until = time.time() + CB_OPEN_SEC
+                    logger.warning(f"A1111 circuit breaker opened due to: {e}")
+                logger.error(f"A1111 generation failed: {e}")
+                # Explicit mode: still fall back; auto mode: will switch next call
+                return self._generate_placeholder(output_path, label="A1111 offline")
         
-        elif self.backend == "sdxl-comfyui":
+        elif backend == "sdxl-comfyui":
             return self._generate_comfyui(panel, output_path, reference_image_path)
         
         else:
-            logger.warning(f"Unknown backend '{self.backend}', falling back to placeholder")
+            logger.warning(f"Unknown backend '{backend}', falling back to placeholder")
             return self._generate_placeholder(output_path, label=f"Panel {panel.chunk_id}")
     
     def _generate_placeholder(self, output_path: Path, label: str = "") -> str:

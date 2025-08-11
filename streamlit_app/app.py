@@ -15,6 +15,7 @@ from src.agentic_flow.persistence import get_database, RunRecord
 from src.agentic_flow.manifest_contracts import RunManifest
 from src.agentic_flow.exporters.pdf_exporter import export_manifest_to_pdf
 from src.agentic_flow.exporters.pptx_exporter import export_manifest_to_pptx
+from src.agentic_flow.image_service import image_service
 
 st.set_page_config(
     page_title="StAnify - Educational Content Generator", 
@@ -317,10 +318,49 @@ def resolve_topic_from_prompt(year: str, subject: str, prompt: str):
             'error': str(e)
         }
 
+def render_backend_status():
+    """Render backend status indicator in the UI."""
+    try:
+        status = image_service.get_status()
+        active = status["active"]
+        configured = status["configured"]
+        a1111_ok = status["a1111_ok"]
+        
+        # Choose emoji and color based on status
+        if a1111_ok and active == "sdxl-a1111":
+            badge = "🟢"
+            message = f"**{active}** (AI generation active)"
+        elif active == "placeholder" and configured == "auto":
+            badge = "🟡"
+            message = f"**{active}** (A1111 offline - using placeholders)"
+        elif active == "placeholder":
+            badge = "🔵"
+            message = f"**{active}** (configured)"
+        else:
+            badge = "🔴"
+            message = f"**{active}** (unknown status)"
+        
+        # Display status
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.caption(f"{badge} Image backend: {message}")
+        with col2:
+            if configured == "auto" and not a1111_ok:
+                if st.button("🔄 Recheck A1111", help="Force recheck A1111 connection"):
+                    # Force a synchronous recheck
+                    image_service._health.last_check_ts = 0
+                    image_service._health.cb_open_until = 0
+                    st.rerun()
+    except Exception as e:
+        st.caption(f"🔴 Backend status: Error ({str(e)})")
+
 def render_new_run_interface():
     """Render the interface for creating new runs."""
     st.title("🎨 StAnify - Educational Content Generator")
     st.caption("AI-powered visual educational content with continuity checks and LLM agents")
+    
+    # Backend status indicator
+    render_backend_status()
     
     # Get available years and subjects
     years_subjects = get_available_years_and_subjects()

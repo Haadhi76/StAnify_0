@@ -62,3 +62,6 @@ htmlcov/
 config.json
 config.yaml
 config.yml
+
+# Stable Diffusion WebUI (A1111) - large installation, user-specific
+stable-diffusion-webui/

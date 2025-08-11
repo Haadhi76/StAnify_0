@@ -7,7 +7,7 @@ import os
 from typing import Literal, Optional
 
 # Image generation backend options
-ImageBackend = Literal["placeholder", "sdxl-a1111", "sdxl-comfyui"]
+ImageBackend = Literal["auto", "placeholder", "sdxl-a1111", "sdxl-comfyui"]
 
 
 class Settings:
@@ -15,7 +15,7 @@ class Settings:
     
     def __init__(self):
         # Image generation backend
-        self.image_backend: ImageBackend = os.getenv("IMAGE_BACKEND", "placeholder")
+        self.image_backend: ImageBackend = os.getenv("IMAGE_BACKEND", "auto")
         
         # Automatic1111 settings
         self.a1111_base_url: str = os.getenv("A1111_BASE_URL", "http://127.0.0.1:7860")
@@ -57,9 +57,9 @@ class Settings:
             True if settings are valid, False otherwise
         """
         # Validate image backend
-        if self.image_backend not in ["placeholder", "sdxl-a1111", "sdxl-comfyui"]:
-            print(f"Warning: Invalid image_backend '{self.image_backend}', falling back to 'placeholder'")
-            self.image_backend = "placeholder"
+        if self.image_backend not in ["auto", "placeholder", "sdxl-a1111", "sdxl-comfyui"]:
+            print(f"Warning: Invalid image_backend '{self.image_backend}', falling back to 'auto'")
+            self.image_backend = "auto"
         
         # Validate dimensions
         if self.default_width <= 0 or self.default_height <= 0:
