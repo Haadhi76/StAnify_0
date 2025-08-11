@@ -1,0 +1,62 @@
+Convert these educational content chunks into detailed panel specifications for image generation:
+
+**Chunks to Convert:**
+{chunks_json}
+
+**Style Requirements:**
+{style_card}
+
+**Narrative Context:**
+{narrative_brief}
+
+**Visual Style Guidelines:**
+- Render Style: {render_style}
+- Color Palette: {palette}
+- Character Consistency: {character_consistency}
+- Visual Tags: {visual_tags}
+
+**Panel Generation Rules:**
+1. Create exactly one panel per chunk, maintaining chunk_id mapping
+2. Write engaging, descriptive captions suitable for children
+3. Craft detailed positive prompts that capture the scene, characters, and educational content
+4. Use negative prompts to avoid unwanted content (text, logos, inappropriate material)
+5. Set reference instructions: first panel uses no reference, subsequent panels reference previous for consistency
+6. Include continuity notes to maintain visual consistency across panels
+7. Ensure character consistency and style coherence throughout
+
+**Required JSON Output Format:**
+{{
+  "panels": [
+    {{
+      "chunk_id": "matching_chunk_id_from_input",
+      "caption": "Child-friendly caption describing this panel",
+      "positive_prompt": "Detailed image generation prompt including scene, characters, actions, setting, style",
+      "negative_prompt": "Things to avoid: text, watermark, logo, inappropriate content",
+      "reference": {{
+        "use_previous_image": false_for_first_panel_true_for_others,
+        "purpose": "style" or null for first panel (valid values: "style", "character", "layout"),
+        "strength_hint": 0.6 or null for first panel
+      }},
+      "continuity_notes": ["specific consistency requirements"],
+      "style_card": {{
+        "render_style": "{render_style}",
+        "palette": [list_of_colors],
+        "camera": "eye level",
+        "aspect_ratio": "4:3",
+        "character_sheet": [{{
+          "name": "character_name",
+          "age": "appropriate_age",
+          "clothes": "consistent_clothing",
+          "hair": "hair_description"
+        }}]
+      }},
+      "sdxl_hints": {{
+        "width": 1024,
+        "height": 768,
+        "cfg_scale": 6.5,
+        "steps": 30,
+        "sampler": "DPM++ 2M Karras"
+      }}
+    }}
+  ]
+}}

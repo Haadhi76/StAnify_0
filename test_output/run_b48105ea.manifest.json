@@ -1,0 +1,236 @@
+{
+  "version": "1.0.0",
+  "task": {
+    "run_id": "run_b48105ea",
+    "user_id": null,
+    "year": "Year 1",
+    "subject": "mathematics",
+    "topic_id": "add_within_20",
+    "created_at": "2025-08-11T01:07:38.262125",
+    "model_notes": "Generated with placeholder backend and LLM agents. Image continuity: Pass"
+  },
+  "refined_prompt": {
+    "year": "Year 1",
+    "subject": "mathematics",
+    "topic_id": "add_within_20",
+    "topic_title": "Addition within 20 (no regrouping)",
+    "learning_objectives": [
+      "Understand and perform addition within 20 using concrete objects.",
+      "Recognize and use the symbols + and = in mathematical equations.",
+      "Solve simple addition problems using fruits as visual aids."
+    ],
+    "success_criteria": [
+      "Correctly add two numbers within 20 using fruit representations.",
+      "Accurately use the plus and equals symbols in equations.",
+      "Solve addition equations using a number line or ten-frame."
+    ],
+    "constraints": {
+      "reading_level": "KS1-simple",
+      "max_steps": 5,
+      "numbers_range": [
+        0,
+        20
+      ],
+      "representations_allowed": [
+        "fruit",
+        "counters",
+        "ten-frame",
+        "number line"
+      ],
+      "vocab_prefer": [
+        "add",
+        "plus",
+        "makes",
+        "equals",
+        "sum",
+        "more"
+      ],
+      "vocab_avoid": [
+        "regroup",
+        "carry",
+        "algorithm"
+      ],
+      "out_of_scope": [
+        "carrying_regrouping",
+        "column_addition",
+        "negative_numbers"
+      ]
+    },
+    "pedagogy": {
+      "activate_prior_knowledge": "Begin with counting objects up to 20 to establish a base for addition.",
+      "address_misconceptions": [
+        "Clarify that '=' means 'is the same as', not 'and then'."
+      ],
+      "tone_style": "encouraging"
+    },
+    "narrative_brief": {
+      "setting": "a fruit market",
+      "characters": [
+        "Anna the Apple Vendor",
+        "Ben the Banana Buyer"
+      ],
+      "must_include": [
+        "Anna helping Ben add apples and bananas to find the total fruit."
+      ],
+      "must_avoid": [
+        "complex mathematical terms",
+        "negative results",
+        "regrouping scenarios"
+      ]
+    },
+    "visual_tags": [
+      "colorful fruits",
+      "number lines",
+      "smiling children",
+      "ten-frame layout",
+      "simple equations"
+    ],
+    "style_card": {
+      "render_style": "cartoon",
+      "palette": [
+        "bright colors",
+        "pastel shades"
+      ],
+      "camera": "eye-level",
+      "aspect_ratio": "16:9",
+      "character_consistency": "consistent"
+    },
+    "notes_for_writers": "Ensure the storyline is engaging and relatable for young children, focusing on the use of fruits to teach simple addition. Avoid using any advanced mathematical concepts, and keep instructions clear and concise."
+  },
+  "narrative": "A child has 7 apples and finds 5 more at a picnic. They use a number line to count on.",
+  "chunks": [
+    {
+      "chunk_id": "c1",
+      "index": 0,
+      "title": "Setup the problem",
+      "text": "Present the initial situation and quantities.",
+      "goal": "Establish the mathematical context",
+      "setting": "a fruit market",
+      "characters": [
+        "Anna the Apple Vendor",
+        "Ben the Banana Buyer"
+      ],
+      "actions": [
+        "introduce problem",
+        "show initial quantities"
+      ],
+      "props": [
+        "counting materials",
+        "Anna helping Ben add apples and bananas to find the total fruit."
+      ],
+      "visual_tags": [
+        "colorful fruits",
+        "number lines"
+      ],
+      "constraints_notes": []
+    },
+    {
+      "chunk_id": "c2",
+      "index": 1,
+      "title": "Solve the problem",
+      "text": "Work through the solution step by step.",
+      "goal": "Demonstrate the solution process",
+      "setting": "a fruit market",
+      "characters": [
+        "Anna the Apple Vendor",
+        "Ben the Banana Buyer"
+      ],
+      "actions": [
+        "apply method",
+        "show solution"
+      ],
+      "props": [
+        "solution tools",
+        "Anna helping Ben add apples and bananas to find the total fruit."
+      ],
+      "visual_tags": [
+        "colorful fruits",
+        "number lines",
+        "smiling children",
+        "ten-frame layout",
+        "simple equations"
+      ],
+      "constraints_notes": []
+    }
+  ],
+  "panels": [
+    {
+      "chunk_id": "c1",
+      "index": 0,
+      "caption": "Step 1: Setup the problem",
+      "image_uri": "E:\\UOB_Academics\\Course_Modules\\Project\\StAnify_4\\test_output\\panel_c1.png",
+      "style_card": {
+        "render_style": "cartoon",
+        "palette": [
+          "bright colors",
+          "pastel shades"
+        ],
+        "camera": "eye-level",
+        "aspect_ratio": "16:9",
+        "character_consistency": "consistent"
+      },
+      "provenance": {
+        "prompt_text": "Present the initial situation and quantities. cartoon, bright colors, pastel shades",
+        "negative_prompt": "text, watermark, logo, inappropriate content",
+        "sdxl_width": 1024,
+        "sdxl_height": 768,
+        "cfg_scale": 6.5,
+        "steps": 30,
+        "sampler": "DPM++ 2M Karras",
+        "seed": null,
+        "used_previous_image": false,
+        "reference_purpose": null,
+        "reference_strength_hint": null,
+        "iterations": 1
+      },
+      "critique": null
+    },
+    {
+      "chunk_id": "c2",
+      "index": 1,
+      "caption": "Step 2: Solve the problem",
+      "image_uri": "E:\\UOB_Academics\\Course_Modules\\Project\\StAnify_4\\test_output\\panel_c2.png",
+      "style_card": {
+        "render_style": "cartoon",
+        "palette": [
+          "bright colors",
+          "pastel shades"
+        ],
+        "camera": "eye-level",
+        "aspect_ratio": "16:9",
+        "character_consistency": "consistent"
+      },
+      "provenance": {
+        "prompt_text": "Work through the solution step by step. cartoon, bright colors, pastel shades",
+        "negative_prompt": "text, watermark, logo, inappropriate content",
+        "sdxl_width": 1024,
+        "sdxl_height": 768,
+        "cfg_scale": 6.5,
+        "steps": 30,
+        "sampler": "DPM++ 2M Karras",
+        "seed": null,
+        "used_previous_image": true,
+        "reference_purpose": "style",
+        "reference_strength_hint": 0.6,
+        "iterations": 1
+      },
+      "critique": null
+    }
+  ],
+  "overall_critique": {
+    "verdict": "Soft Pass",
+    "scores": {
+      "alignment": 3,
+      "vocab": 3,
+      "scope": 3,
+      "cognitive_load": 3
+    },
+    "evidence": [
+      "Minimal critique implementation"
+    ],
+    "feedback_for_analogy": "See overall recommendations",
+    "feedback_for_narrative": "Conduct detailed educational review"
+  },
+  "final_verdict": "Soft Pass",
+  "summary_notes": "Hello-world run."
+}

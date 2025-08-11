@@ -1,0 +1,27 @@
+# Core dependencies with locked versions for stability
+fastapi==0.115.0
+uvicorn==0.30.6
+pydantic==1.10.13  # Locked to v1 for compatibility
+jinja2==3.1.4
+pyyaml==6.0.2
+reportlab==4.2.2
+python-pptx==1.0.2
+pillow==10.4.0
+requests==2.32.3
+streamlit==1.48.*  # Compatible with Pydantic v1
+
+# Development and testing tools
+pytest>=7.0.0
+pytest-cov>=4.0.0
+ruff>=0.1.0
+black>=23.0.0
+pre-commit>=3.0.0
+
+# Optional dependencies for image continuity evaluation
+# Install with: pip install torch torchvision git+https://github.com/openai/CLIP.git lpips scikit-image
+torch>=2.0.0
+torchvision>=0.15.0
+# Use official CLIP repository instead of clip-by-openai
+git+https://github.com/openai/CLIP.git
+lpips>=0.1.4
+scikit-image>=0.21.0

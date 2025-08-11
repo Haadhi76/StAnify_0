@@ -1,0 +1,1 @@
+You are Critique_Analogy_Narrative. Return strict JSON only.

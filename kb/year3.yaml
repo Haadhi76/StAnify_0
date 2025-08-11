@@ -1,0 +1,61 @@
+year: "Year 3"
+key_stage: "KS2"
+subjects:
+  mathematics:
+    name: "Mathematics"
+    topics:
+      - id: "multiply_divide_tables"
+        title: "Multiplication and Division (2, 5, 10 times tables)"
+        assumed_known: ["add_within_100", "count_in_2s_5s_10s", "equal_groups"]
+        allowed_new: ["times_tables", "multiplication_symbol", "division_symbol", "arrays"]
+        out_of_scope: ["long_multiplication", "long_division", "decimals"]
+        vocab_known: ["multiply", "times", "groups_of", "divide", "share", "array"]
+        vocab_avoid: ["algorithm", "quotient", "dividend"]
+        representations_allowed: ["arrays", "groups", "number_line", "grid"]
+        typical_misconceptions:
+          - "Confusing multiplication and addition."
+          - "Not understanding division as inverse of multiplication."
+        style_guidance:
+          reading_level: "KS2-early"
+          max_steps: 6
+          numbers_range: [1, 100]
+          sentences_max_len: 18
+          vocab_tier_limit: 2
+
+      - id: "fractions_halves_quarters"
+        title: "Fractions (halves, quarters, thirds)"
+        assumed_known: ["equal_parts", "whole_numbers", "sharing"]
+        allowed_new: ["fraction_notation", "numerator", "denominator", "equivalent"]
+        out_of_scope: ["improper_fractions", "mixed_numbers", "fraction_arithmetic"]
+        vocab_known: ["fraction", "half", "quarter", "third", "equal_parts", "whole"]
+        vocab_avoid: ["improper", "mixed", "reciprocal"]
+        representations_allowed: ["shapes", "bars", "circles", "real_objects"]
+        typical_misconceptions:
+          - "Thinking larger denominator means larger fraction."
+          - "Not understanding fractions represent parts of a whole."
+        style_guidance:
+          reading_level: "KS2-early"
+          max_steps: 5
+          numbers_range: [1, 12]
+          sentences_max_len: 16
+          vocab_tier_limit: 2
+
+  science:
+    name: "Science"
+    topics:
+      - id: "plants_growth"
+        title: "Plant Growth and Nutrition"
+        assumed_known: ["living_things", "plants_animals", "basic_needs"]
+        allowed_new: ["photosynthesis", "nutrients", "life_cycle", "reproduction"]
+        out_of_scope: ["cellular_respiration", "genetics", "evolution"]
+        vocab_known: ["plant", "grow", "water", "light", "soil", "leaves", "roots"]
+        vocab_avoid: ["cellular", "molecular", "genetic"]
+        representations_allowed: ["diagrams", "real_plants", "experiments", "observations"]
+        typical_misconceptions:
+          - "Plants get food from soil instead of making it."
+          - "All plants need the same amount of water and light."
+        style_guidance:
+          reading_level: "KS2-early"
+          max_steps: 6
+          sentences_max_len: 16
+          vocab_tier_limit: 2

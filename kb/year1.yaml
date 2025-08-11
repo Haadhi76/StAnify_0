@@ -1,0 +1,22 @@
+year: "Year 1"
+key_stage: "KS1"
+subjects:
+  mathematics:
+    name: "Mathematics"
+    topics:
+      - id: "add_within_20"
+        title: "Addition within 20 (no regrouping)"
+        assumed_known: ["count_to_20", "meaning_of_equals"]
+        allowed_new: ["number_bonds_to_10_and_20", "counting_on"]
+        out_of_scope: ["carrying_regrouping", "column_addition", "negative_numbers"]
+        vocab_known: ["add", "plus", "makes", "equals", "sum", "more"]
+        vocab_avoid: ["regroup", "carry", "algorithm"]
+        representations_allowed: ["fruit", "counters", "ten-frame", "number line"]
+        typical_misconceptions:
+          - "Treating '=' as 'and then' instead of 'is the same as'."
+        style_guidance:
+          reading_level: "KS1-simple"
+          max_steps: 5
+          numbers_range: [0, 20]
+          sentences_max_len: 14
+          vocab_tier_limit: 1

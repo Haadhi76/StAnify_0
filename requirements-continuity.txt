@@ -1,0 +1,17 @@
+# StAnify Image Continuity Dependencies
+# These are optional dependencies for advanced image continuity evaluation
+
+# Core image processing
+torch>=1.9.0
+torchvision>=0.10.0
+pillow>=8.0.0
+numpy>=1.21.0
+
+# Image continuity evaluation
+git+https://github.com/openai/CLIP.git
+lpips>=0.1.4
+scikit-image>=0.18.0
+
+# Additional dependencies for enhanced functionality
+matplotlib>=3.3.0  # For visualization
+opencv-python>=4.5.0  # For advanced image processing

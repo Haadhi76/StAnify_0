@@ -1,0 +1,18 @@
+User Request: {user_prompt}
+
+Context:
+- Year Level: {year}
+- Subject: {subject}
+- Topic: {topic_title} (ID: {topic_id})
+- Reading Level: {reading_level}
+- Max Steps: {max_steps}
+- Number Range: {numbers_range}
+
+Curriculum Information:
+- Known Vocabulary: {vocab_known}
+- Vocabulary to Avoid: {vocab_avoid}
+- Allowed Representations: {representations}
+- Out of Scope: {out_of_scope}
+- Common Misconceptions: {misconceptions}
+
+Generate a comprehensive educational specification as valid JSON following the RefinedPromptSpec schema.

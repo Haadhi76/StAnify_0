@@ -1,0 +1,41 @@
+Break down this educational content into logical learning chunks for visual storytelling:
+
+**Target Audience:**
+- Year: {year}
+- Subject: {subject}
+- Topic: {topic}
+
+**Educational Context:**
+{narrative_brief}
+
+**Refined Prompt:**
+{refined_prompt_text}
+
+**Style & Setting:**
+{style_context}
+
+**Requirements:**
+- Create 2-3 chunks that tell a complete educational story
+- Each chunk should be suitable for illustration as a comic panel
+- Ensure age-appropriate language and concepts
+- Include specific visual elements (characters, props, actions)
+- Build toward the learning objective: {learning_objective}
+
+Please provide your response in this exact JSON format:
+{{
+  "narrative": "A brief 1-2 sentence summary of the complete educational story",
+  "chunks": [
+    {{
+      "chunk_id": "c1",
+      "index": 0,
+      "title": "Clear, engaging title for this chunk",
+      "text": "Descriptive narrative text explaining what happens",
+      "goal": "Specific learning objective for this chunk",
+      "setting": "Where this chunk takes place",
+      "characters": ["list", "of", "characters", "involved"],
+      "actions": ["action1", "action2", "action3"],
+      "props": ["prop1", "prop2", "educational_material"],
+      "visual_tags": ["visual_element1", "visual_element2", "visual_element3"]
+    }}
+  ]
+}}

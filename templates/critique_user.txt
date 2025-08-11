@@ -1,0 +1,1 @@
+{ "verdict": "Pass", "scores": {"alignment":5,"vocab":5,"scope":5,"cognitive_load":5}, "evidence": [], "feedback_for_analogy": "", "feedback_for_narrative": "" }

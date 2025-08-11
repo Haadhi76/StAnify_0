@@ -1,0 +1,60 @@
+year: "Year 2"
+key_stage: "KS1"
+subjects:
+  mathematics:
+    name: "Mathematics"
+    topics:
+      - id: "add_within_100"
+        title: "Addition within 100 (with regrouping)"
+        assumed_known: ["add_within_20", "place_value_tens_ones", "number_bonds_to_10"]
+        allowed_new: ["regrouping", "column_addition", "mental_strategies"]
+        out_of_scope: ["three_digit_numbers", "decimals", "fractions"]
+        vocab_known: ["add", "plus", "equals", "sum", "tens", "ones", "regroup", "carry"]
+        vocab_avoid: ["algorithm", "decimal", "fraction"]
+        representations_allowed: ["base_ten_blocks", "hundred_square", "number_line", "place_value_chart"]
+        typical_misconceptions:
+          - "Forgetting to regroup when sum exceeds 10 in ones column."
+          - "Adding digits in wrong order during regrouping."
+        style_guidance:
+          reading_level: "KS1-developing"
+          max_steps: 7
+          numbers_range: [0, 100]
+          sentences_max_len: 16
+          vocab_tier_limit: 2
+      
+      - id: "subtract_within_100"
+        title: "Subtraction within 100 (with borrowing)"
+        assumed_known: ["subtract_within_20", "place_value_tens_ones"]
+        allowed_new: ["borrowing", "decomposition", "mental_strategies"]
+        out_of_scope: ["negative_numbers", "three_digit_numbers"]
+        vocab_known: ["subtract", "minus", "take_away", "difference", "borrow", "decompose"]
+        vocab_avoid: ["negative", "debt", "algorithm"]
+        representations_allowed: ["base_ten_blocks", "number_line", "place_value_chart"]
+        typical_misconceptions:
+          - "Subtracting smaller from larger digit regardless of position."
+          - "Forgetting to reduce tens when borrowing."
+        style_guidance:
+          reading_level: "KS1-developing"
+          max_steps: 8
+          numbers_range: [0, 100]
+          sentences_max_len: 16
+          vocab_tier_limit: 2
+
+  english:
+    name: "English"
+    topics:
+      - id: "compound_words"
+        title: "Compound Words"
+        assumed_known: ["basic_vocabulary", "letter_sounds", "simple_reading"]
+        allowed_new: ["word_formation", "meaning_from_parts"]
+        out_of_scope: ["complex_grammar", "advanced_vocabulary"]
+        vocab_known: ["word", "part", "together", "meaning"]
+        vocab_avoid: ["morphology", "etymology"]
+        representations_allowed: ["pictures", "word_cards", "examples"]
+        typical_misconceptions:
+          - "Thinking compound words are just two words next to each other."
+        style_guidance:
+          reading_level: "KS1-developing"
+          max_steps: 4
+          sentences_max_len: 12
+          vocab_tier_limit: 1
