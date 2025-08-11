@@ -447,7 +447,11 @@ class ImageService:
         key = settings.stability_api_key
         if not key:
             raise ImageGenerationError("STABILITY_API_KEY missing")
-        return {"Authorization": f"Bearer {key}"}
+        return {
+            "Authorization": f"Bearer {key}",
+            "User-Agent": "StAnify/1.0 Educational-Content-Generator",
+            "Accept": "application/json"
+        }
     
     def _get_stability_balance(self) -> float:
         """Get current account balance from Stability API."""
@@ -537,9 +541,11 @@ class ImageService:
             # Remove None values
             payload = {k: v for k, v in payload.items() if v is not None}
             
-            headers = {**self._stability_headers(), "Accept":"application/json"}
+            headers = self._stability_headers()
 
             try:
+                # Small delay to avoid rate limiting
+                time.sleep(0.5)
                 r = requests.post(url, headers=headers, json=payload, timeout=settings.http_timeout)
                 r.raise_for_status()
                 return self._stability_extract_b64(r.json())
@@ -566,7 +572,7 @@ class ImageService:
             # Remove None values
             payload = {k: v for k, v in payload.items() if v is not None}
             
-            headers = {**self._stability_headers(), "Accept": "application/json"}
+            headers = self._stability_headers()
             r = requests.post(url, headers=headers, json=payload, timeout=settings.http_timeout)
             r.raise_for_status()
             
@@ -584,11 +590,6 @@ class ImageService:
         Returns:
             Raw PNG bytes from Stability API
         """
-        # Check if reference image is placeholder or has disallowed dimensions for engines mode
-        if self.config["stability_mode"] == "engines" and _is_placeholder_or_disallowed(ref_path):
-            logger.warning(f"Reference image {ref_path} not suitable for SDXL engines img2img, falling back to txt2img")
-            return self._stability_txt2img(panel, base_url)
-        
         w = panel.sdxl_hints.width or self.config["width"]
         h = panel.sdxl_hints.height or self.config["height"]
         guidance = panel.sdxl_hints.cfg_scale or self.config["stability_guidance"]
@@ -628,6 +629,8 @@ class ImageService:
                 data["text_prompts[1][weight]"] = "-1.0"
 
             try:
+                # Small delay to avoid rate limiting
+                time.sleep(0.5)
                 r = requests.post(url, headers=self._stability_headers(), data=data, files=files, timeout=settings.http_timeout)
                 r.raise_for_status()
                 return self._stability_extract_b64(r.json())
