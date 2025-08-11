@@ -18,9 +18,23 @@ htmlcov/
 # Environment variables (contains API keys)
 .env
 
+# Database files (contain run data and user information)
+*.db
+*.sqlite
+*.sqlite3
+
 # Output directories
 output/
 exports/
+test_output/
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
 
 # IDE files
 .vscode/
@@ -36,3 +50,15 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# API keys and sensitive configuration
+*.key
+*.pem
+config.json
+config.yaml
+config.yml
