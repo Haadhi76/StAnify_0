@@ -432,20 +432,31 @@ class ImageService:
         model = getattr(panel.sdxl_hints, "model", None) or self.config["stability_model"]
         
         payload = {
-            "model": model,
-            "prompt": panel.positive_prompt,
-            "negative_prompt": panel.negative_prompt or "",
+            "text_prompts": [
+                {"text": panel.positive_prompt, "weight": 1.0}
+            ],
             "width": w,
             "height": h,
             "steps": steps,
-            "guidance": guidance,
-            "seed": panel.sdxl_hints.seed if panel.sdxl_hints.seed else None,
+            "cfg_scale": guidance,
+            "samples": 1,
         }
+        
+        # Add negative prompt if provided
+        if panel.negative_prompt:
+            payload["text_prompts"].append({
+                "text": panel.negative_prompt, 
+                "weight": -1.0
+            })
+        
+        # Add seed if provided
+        if panel.sdxl_hints.seed:
+            payload["seed"] = panel.sdxl_hints.seed
         
         # Remove None values to avoid API issues
         payload = {k: v for k, v in payload.items() if v is not None}
         
-        url = f"{base_url.rstrip('/')}/v1/images/generate"
+        url = f"{base_url.rstrip('/')}/v1/generation/{model}/text-to-image"
         logger.info(f"Sending Stability txt2img request: {model}, {w}x{h}")
         
         r = requests.post(
@@ -500,19 +511,28 @@ class ImageService:
         strength = min(max(panel.reference.strength_hint or 0.6, 0.1), 0.95)
         
         # Prepare multipart request
-        files = {"image": open(ref_path, "rb")}
+        files = {"init_image": open(ref_path, "rb")}
         data = {
-            "model": model,
-            "prompt": panel.positive_prompt,
-            "negative_prompt": panel.negative_prompt or "",
+            "text_prompts[0][text]": panel.positive_prompt,
+            "text_prompts[0][weight]": "1.0",
             "width": str(w),
             "height": str(h),
             "steps": str(steps),
-            "guidance": str(guidance),
-            "strength": str(strength),
+            "cfg_scale": str(guidance),
+            "image_strength": str(1.0 - strength),  # Stability uses image_strength (inverse of strength)
+            "samples": "1",
         }
         
-        url = f"{base_url.rstrip('/')}/v1/images/edits"
+        # Add negative prompt if provided
+        if panel.negative_prompt:
+            data["text_prompts[1][text]"] = panel.negative_prompt
+            data["text_prompts[1][weight]"] = "-1.0"
+        
+        # Add seed if provided
+        if panel.sdxl_hints.seed:
+            data["seed"] = str(panel.sdxl_hints.seed)
+        
+        url = f"{base_url.rstrip('/')}/v1/generation/{model}/image-to-image"
         logger.info(f"Sending Stability img2img request: {model}, strength={strength}")
         
         try:
