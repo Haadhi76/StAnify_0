@@ -565,32 +565,53 @@ class ImageService:
                              e, json.dumps(payload, indent=2)[:2000], body[:2000])
                 raise
             
-        else:  # "images" mode
+        else:  # "images" mode - v2beta API with multipart/form-data
             path = self.config["stability_txt2img_path"]
             url = f"{base_url.rstrip('/')}{path}"
-            payload = {
-                "model": model,
-                "prompt": panel.positive_prompt,
-                "negative_prompt": panel.negative_prompt or "",
-                "width": w,
-                "height": h,
-                "steps": steps,
-                "guidance": guidance,
-                "seed": panel.sdxl_hints.seed,
+            
+            w = panel.sdxl_hints.width or self.config["width"]
+            h = panel.sdxl_hints.height or self.config["height"]
+            
+            # v2beta API uses form data, not JSON
+            data = {
+                "model": self.config["stability_model"],  # sd3.5-large-turbo
+                "prompt": panel.positive_prompt or "",
+                "width": str(w),
+                "height": str(h),
+                "steps": str(panel.sdxl_hints.steps or self.config["stability_steps"]),
+                "cfg_scale": str(panel.sdxl_hints.cfg_scale or self.config["stability_guidance"]),
             }
             
-            # Remove None values
-            payload = {k: v for k, v in payload.items() if v is not None}
+            # Add optional parameters
+            neg_prompt = (panel.negative_prompt or "").strip()
+            if neg_prompt:
+                data["negative_prompt"] = neg_prompt
+                
+            if panel.sdxl_hints.seed:
+                data["seed"] = str(panel.sdxl_hints.seed)
             
-            headers = self._stability_headers()
-            r = requests.post(url, headers=headers, json=payload, timeout=settings.http_timeout)
-            r.raise_for_status()
+            # v2beta API expects image/* Accept header and multipart form data
+            headers = {
+                "Authorization": f"Bearer {settings.stability_api_key}",
+                "Accept": "image/*"
+            }
             
-            # Some endpoints return binary; if JSON fails, fallback to raw content
+            # Force multipart/form-data by including empty files dict
+            files = {'none': (None, '')}
+            
             try:
-                return self._stability_extract_b64(r.json())
-            except ValueError:
+                # Small delay to avoid rate limiting
+                time.sleep(0.5)
+                r = requests.post(url, headers=headers, data=data, files=files, timeout=settings.http_timeout)
+                r.raise_for_status()
+                
+                # v2beta API returns image data directly
                 return r.content
+                
+            except requests.HTTPError as e:
+                logger.error("Stability v2beta txt2img failed: %s\nData:\n%s\nResponse:\n%s",
+                             e, json.dumps(data, indent=2)[:2000], getattr(e.response, "text", "")[:2000])
+                raise
     
     def _stability_img2img(self, panel: PanelSpec, base_url: str, ref_path: str) -> bytes:
         """
@@ -652,29 +673,53 @@ class ImageService:
             finally:
                 files["init_image"].close()
                 
-        else:  # "images" mode
+        else:  # "images" mode - v2beta API with image-to-image mode
             path = self.config["stability_img2img_path"]
             url = f"{base_url.rstrip('/')}{path}"
-            files = {"image": open(ref_path, "rb")}       # images API expects 'image'
+            
+            w = panel.sdxl_hints.width or self.config["width"]
+            h = panel.sdxl_hints.height or self.config["height"]
+            strength = min(max(panel.reference.strength_hint or 0.6, 0.1), 0.95)
+
+            files = {"image": open(ref_path, "rb")}
             data = {
-                "model": model,
-                "prompt": panel.positive_prompt,
-                "negative_prompt": panel.negative_prompt or "",
+                "mode": "image-to-image",  # Required for v2beta img2img
+                "model": self.config["stability_model"],  # sd3.5-large-turbo
+                "prompt": panel.positive_prompt or "",
                 "width": str(w),
                 "height": str(h),
-                "steps": str(steps),
-                "guidance": str(guidance),
+                "steps": str(panel.sdxl_hints.steps or self.config["stability_steps"]),
+                "cfg_scale": str(panel.sdxl_hints.cfg_scale or self.config["stability_guidance"]),
                 "strength": str(strength),
-                "seed": str(panel.sdxl_hints.seed or 0),
             }
             
+            # Add optional parameters
+            neg_prompt = (panel.negative_prompt or "").strip()
+            if neg_prompt:
+                data["negative_prompt"] = neg_prompt
+                
+            if panel.sdxl_hints.seed:
+                data["seed"] = str(panel.sdxl_hints.seed)
+            
+            # v2beta API expects image/* Accept header
+            headers = {
+                "Authorization": f"Bearer {settings.stability_api_key}",
+                "Accept": "image/*"
+            }
+
             try:
-                r = requests.post(url, headers=self._stability_headers(), data=data, files=files, timeout=settings.http_timeout)
+                # Small delay to avoid rate limiting
+                time.sleep(0.5)
+                r = requests.post(url, headers=headers, data=data, files=files, timeout=settings.http_timeout)
                 r.raise_for_status()
-                try:
-                    return self._stability_extract_b64(r.json())
-                except ValueError:
-                    return r.content
+                
+                # v2beta API returns image data directly
+                return r.content
+                
+            except requests.HTTPError as e:
+                logger.error("Stability v2beta img2img failed: %s\nData:\n%s\nResponse:\n%s",
+                             e, json.dumps({**data, "image":"<binary>"}, indent=2)[:2000], getattr(e.response, "text", "")[:2000])
+                raise
             finally:
                 files["image"].close()
     

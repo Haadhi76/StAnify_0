@@ -40,14 +40,14 @@ class Settings:
         # Stability AI settings
         self.stability_base_url: str = os.getenv("STABILITY_BASE_URL", "https://api.stability.ai")
         self.stability_api_key: Optional[str] = os.getenv("STABILITY_API_KEY")
-        self.stability_model: str = os.getenv("STABILITY_MODEL", "stable-diffusion-xl-1024-v1-0")
+        self.stability_model: str = os.getenv("STABILITY_MODEL", "sd3.5-large-turbo")
         self.stability_guidance: float = float(os.getenv("STABILITY_GUIDANCE", "7.0"))
         self.stability_steps: int = int(os.getenv("STABILITY_STEPS", "30"))
         
         # Stability API mode and endpoints
-        self.stability_api_mode: str = os.getenv("STABILITY_API_MODE", "engines")  # "engines" | "images"
-        self.stability_txt2img_path: str = os.getenv("STABILITY_TXT2IMG_PATH", "/v1/generation/{engine}/text-to-image")
-        self.stability_img2img_path: str = os.getenv("STABILITY_IMG2IMG_PATH", "/v1/generation/{engine}/image-to-image")
+        self.stability_api_mode: str = os.getenv("STABILITY_API_MODE", "images")  # "images" | "engines"
+        self.stability_txt2img_path: str = os.getenv("STABILITY_TXT2IMG_PATH", "/v1/images/generate")
+        self.stability_img2img_path: str = os.getenv("STABILITY_IMG2IMG_PATH", "/v1/images/edits")
         
         # Default SDXL parameters
         self.default_width: int = int(os.getenv("SDXL_WIDTH", "1024"))
